@@ -62,6 +62,10 @@ ocp_platform(){
       pltf_baremetal "$platform"
       ;;
 
+    IBMCloud)
+      pltf_ibmcloud "$platform"
+      ;;
+
     None)
       pltf_none
       ;;
@@ -202,6 +206,28 @@ pltf_nutanix() {
     ingressip=$(jq -r '.status.platformStatus.nutanix.ingressIP' ${extract_dir}/config/infrastructure.json)
   else
     install_type="UPI"
+  fi
+
+  network_info
+  output "$1" "${install_type}"
+  printf "\n"
+
+}
+
+pltf_ibmcloud() {
+
+  if $(jq -r '.status.platformStatus | has("ibmcloud")' config/infrastructure.json);
+  then
+    install_type="IPI"
+    api_internal_ip=$(jq -r '.status.platformStatus.ibmcloud.apiServerInternalIP' config/infrastructure.json)
+    ingressip=$(jq -r '.status.platformStatus.ibmcloud.ingressIP' config/infrastructure.json)
+  else
+    if $(grep ROKS config/configmaps/openshift-config/openshift-install/invoker >/dev/null 2>&1)
+    then
+      install_type="HyperShift"
+    else
+      install_type="UPI"
+    fi
   fi
 
   network_info
