@@ -503,6 +503,34 @@ failing_pods() {
 
 }
 
+uid_overlap() {
+
+if [ -f "${extract_dir}/config/namespaces_with_overlapping_uids.json" ];
+then
+
+  ns_length=$(jq length "${extract_dir}/config/namespaces_with_overlapping_uids.json")
+  ns_count=$(( $ns_length - 1 ))
+
+  uid_conflict_arr=("NAMESPACE|NAMESPACE")
+  for i in $(seq 0 ${ns_count}); do
+    uid_conflict_arr+=("$(jq -r ".[$i] | to_entries | [(select(.[].key == 0) | .[].value)] | join(\"|i\")" ${extract_dir}/config/namespaces_with_overlapping_uids.json)")
+  done
+
+  if [ "${#uid_conflict_arr[1]}" != 0 ];
+  then
+    printf "Namespaces with overlapping UIDs.\n\n"
+    printf '%s\n' "${uid_conflict_arr[@]}" | column -t -s '|'
+    printf "\n"
+  fi
+
+  unset ns_length
+  unset ns_count
+  unset uid_conflict_arr
+
+fi
+
+}
+
 output() {
 
   printf "\n"
@@ -531,6 +559,8 @@ output() {
   failing_pods
 
   namespace_events
+
+  uid_overlap
 
   exit 0
 
