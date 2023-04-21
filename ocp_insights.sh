@@ -568,7 +568,7 @@ output() {
   printf "\n"
 
   echo "Platform: $1"
-  if grep assisted-installer config/configmaps/openshift-config/openshift-install-manifests/invoker >/dev/null 2>&1; then
+  if grep assisted-installer "${extract_dir}/config/configmaps/openshift-config/openshift-install-manifests/invoker" >/dev/null 2>&1; then
       echo "Install Type: Assisted Installer"
   else
       echo "Install Type: $2"
