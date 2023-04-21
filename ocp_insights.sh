@@ -549,14 +549,13 @@ then
     printf "Pod Network Connectivity Checks.\n\n"
     printf '%s\n' "${podnetcheck_arr[@]}" | column -t -s '|'
     printf "\n"
+    printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json"
+    printf "\n\n"
   fi
 
   unset podnetcheck_length
   unset podnetcheck_count
   unset podnetcheck_arr
-
-  printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json"
-  printf "\n\n"
 
 fi
 
