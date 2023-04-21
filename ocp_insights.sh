@@ -491,7 +491,7 @@ failing_pods() {
 
     if [ "${#restarting_pods_arr[1]}" != 0 ];
     then
-      printf "Containers with more than 3 restarts.\n"
+      printf "Containers with more than 3 restarts.\n\n"
       printf '%s\n' "${restarting_pods_arr[@]}" | column -t -s '|'
       printf "\n"
     fi
@@ -531,6 +531,37 @@ fi
 
 }
 
+podnetcheck(){
+
+if [ -f "${extract_dir}/config/podnetworkconnectivitychecks.json" ];
+then
+
+  podnetcheck_length=$(jq -r '. | to_entries | length' "${extract_dir}/config/podnetworkconnectivitychecks.json")
+  podnetcheck_count=$(( $podnetcheck_length - 1 ))
+
+  podnetcheck_arr=("ERROR|COUNT")
+  for i in $(seq 0 ${podnetcheck_count}); do
+    podnetcheck_arr+=("$(jq -r ". | to_entries | [.[$i].key, (.[$i].value | length)] |  join(\"|\")" ${extract_dir}/config/podnetworkconnectivitychecks.json)")
+  done
+
+  if [ "${#podnetcheck_arr[1]}" != 0 ];
+  then
+    printf "Pod Network Connectivity Checks.\n\n"
+    printf '%s\n' "${podnetcheck_arr[@]}" | column -t -s '|'
+    printf "\n"
+  fi
+
+  unset podnetcheck_length
+  unset podnetcheck_count
+  unset podnetcheck_arr
+
+  printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json"
+  printf "\n\n"
+
+fi
+
+}
+
 output() {
 
   printf "\n"
@@ -561,6 +592,8 @@ output() {
   namespace_events
 
   uid_overlap
+
+  podnetcheck
 
   exit 0
 
