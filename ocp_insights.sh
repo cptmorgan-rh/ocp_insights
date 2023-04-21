@@ -568,7 +568,11 @@ output() {
   printf "\n"
 
   echo "Platform: $1"
-  echo "Install Type: $2"
+  if grep assisted-installer config/configmaps/openshift-config/openshift-install-manifests/invoker >/dev/null 2>&1; then
+      echo "Install Type: Assisted Installer"
+  else
+      echo "Install Type: $2"
+  fi
   echo "NetworkType: $networktype"
   echo "Proxy Configured:"
   echo "  HTTP: $httpproxy"
