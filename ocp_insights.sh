@@ -513,7 +513,7 @@ then
 
   uid_conflict_arr=("NAMESPACE|NAMESPACE")
   for i in $(seq 0 ${ns_count}); do
-    uid_conflict_arr+=("$(jq -r ".[$i] | to_entries | [(select(.[].key == 0) | .[].value)] | join(\"|i\")" ${extract_dir}/config/namespaces_with_overlapping_uids.json)")
+    uid_conflict_arr+=("$(jq -r ".[$i] | to_entries | [(select(.[].key == 0) | .[].value)] | join(\"|\")" ${extract_dir}/config/namespaces_with_overlapping_uids.json)")
   done
 
   if [ "${#uid_conflict_arr[1]}" != 0 ];
