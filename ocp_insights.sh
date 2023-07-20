@@ -304,7 +304,7 @@ clusteroperator_status() {
 
   clusteroperator_arr=("NAME|VERSION|AVAILABLE|PROGRESSING|DEGRADED")
   for i in ${extract_dir}/config/clusteroperator/*.json;
-  do clusteroperator_arr+=("$(jq -r '[.metadata.name, (.status.versions[] | select(.name == "operator") | .version), (.status.conditions[] | select(.type == "Available") | .status), (.status.conditions[] | select(.type == "Degraded") | .status), (.status.conditions[] | select(.type == "Progressing") | .status)] | join("|")' "$i")");
+  do clusteroperator_arr+=("$(jq -r '[.metadata.name, (.status.versions[] | select(.name == "operator") | .version), (.status.conditions[] | select(.type == "Available") | .status), (.status.conditions[] | select(.type == "Progressing") | .status), (.status.conditions[] | select(.type == "Degraded") | .status)] | join("|")' "$i")");
   done
   printf '%s\n' "${clusteroperator_arr[@]}" | column -t -s '|'
   printf "\n"
