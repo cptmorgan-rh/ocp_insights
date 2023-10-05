@@ -2,24 +2,28 @@
 
 extract_data(){
 
-insights_operator_pod=$(oc get pods --namespace=openshift-insights -o custom-columns=:metadata.name --no-headers --field-selector=status.phase=Running)
-
-if [ -n "$insights_operator_pod" ]
+if [ -f "$1" ]
 then
-
- for i in insights-data extracted-data; do
-   mkdir -p ./$i
- done
- oc cp openshift-insights/${insights_operator_pod}:var/lib/insights-operator/ ./insights-data
+  extract_dir="${1:0:-7}"
+  mkdir -p ${extract_dir}
+  tar xzf "$1" -C ${extract_dir}
 else
- printf "Insights Operator Pod Not Found or Not Running\n"
- exit 127
+  insights_operator_pod=$(oc get pods --namespace=openshift-insights -o custom-columns=:metadata.name --no-headers --field-selector=status.phase=Running)
+  if [ -n "$insights_operator_pod" ]
+  then
+   for i in insights-data extracted-data; do
+     mkdir -p ./$i
+   done
+     oc cp openshift-insights/${insights_operator_pod}:var/lib/insights-operator/ ./insights-data
+  else
+    printf "Insights Operator Pod Not Found or Not Running\n"
+    exit 127
+  fi
+  archive=$(ls -A ./insights-data | tail -n1)
+  extract_dir=./extracted-data/${archive:0:-7}
+  mkdir -p ${extract_dir}
+  tar xzf ./insights-data/${archive} -C ${extract_dir}
 fi
-
-archive=$(ls -A ./insights-data | tail -n1)
-extract_dir=./extracted-data/${archive:0:-7}
-mkdir -p ${extract_dir}
-tar xzf ./insights-data/${archive} -C ${extract_dir}
 
 ocp_platform
 
@@ -66,10 +70,14 @@ ocp_platform(){
       pltf_ibmcloud "$platform"
       ;;
 
+    External)
+      pltf_external "$platform"
+      ;;
+
     None)
       pltf_none
       ;;
-      
+
     *)
       echo "Unknown Platform."
       pltf_none
@@ -216,7 +224,7 @@ pltf_nutanix() {
 
 pltf_ibmcloud() {
 
-  if $(jq -r '.status.platformStatus | has("ibmcloud")' config/infrastructure.json);
+  if $(jq -r '.status.platformStatus | has("ibmcloud")' ${extract_dir}/config/infrastructure.json);
   then
     install_type="IPI"
     api_internal_ip=$(jq -r '.status.platformStatus.ibmcloud.apiServerInternalIP' config/infrastructure.json)
@@ -232,6 +240,20 @@ pltf_ibmcloud() {
 
   network_info
   output "$1" "${install_type}"
+  printf "\n"
+
+}
+
+pltf_external() {
+
+  if $(jq -r '.status.platformStatus.type | contains("External")' ${extract_dir}/config/infrastructure.json);
+  then
+    install_type="UPI"
+    provider=$(jq -r '.spec.platformSpec.external.platformName' ${extract_dir}/config/infrastructure.json)
+  fi
+
+  network_info
+  output "$1" "${install_type}" "${provider}"
   printf "\n"
 
 }
@@ -568,6 +590,9 @@ output() {
   printf "\n"
 
   echo "Platform: $1"
+  if [ ! -z "$3" ]; then
+      echo "Provider: $3"
+  fi
   if grep assisted-installer "${extract_dir}/config/configmaps/openshift-config/openshift-install-manifests/invoker" >/dev/null 2>&1; then
       echo "Install Type: Assisted Installer"
   else
@@ -602,4 +627,4 @@ output() {
 
 }
 
-extract_data
+extract_data "$1"
