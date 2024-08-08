@@ -230,7 +230,7 @@ pltf_ibmcloud() {
     api_internal_ip=$(jq -r '.status.platformStatus.ibmcloud.apiServerInternalIP' config/infrastructure.json)
     ingressip=$(jq -r '.status.platformStatus.ibmcloud.ingressIP' config/infrastructure.json)
   else
-    if $(grep ROKS config/configmaps/openshift-config/openshift-install/invoker >/dev/null 2>&1)
+    if $(grep -E 'hypershift|ROKS' config/configmaps/openshift-config/openshift-install/invoker >/dev/null 2>&1)
     then
       install_type="HyperShift"
     else
