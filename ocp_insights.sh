@@ -443,7 +443,7 @@ namespace_events() {
 
     for i in "${namespace_arr[@]}";
     do
-      printf "To see all events for ${i#*events/} run: jq -r . ${extracted_dir}/${cluster#/}/$report/$i.json\n"
+      printf "To see all events for ${i#*events/} run: jq -r . ${extracted_dir}${cluster}/$i.json\n"
       printf "\n"
       echo "Namespace: $(jq -r '.items[-1].namespace' $i.json)"
       echo "Last Timestamp: $(jq -r '.items[-1].lastTimestamp' "$i".json)"
@@ -650,13 +650,8 @@ podnetcheck(){
       printf '%s\n' "${podnetcheck_arr[@]}" | column -t -s '|'
       printf "\n"
 
-      if [[ "$file" != true ]]; then
-        printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/$target/config/podnetworkconnectivitychecks.json\n"
-      else
-        printf "To see all Alerts run: jq -r . ${extract_dir}/$target/config/alerts.json\n"
-      fi
-      printf "\n"
-    fi
+     printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json\n"
+   fi
 
     unset podnetcheck_length
     unset podnetcheck_count
@@ -752,12 +747,7 @@ alerts(){
     then
       printf '%s\n' "${alerts_arr[@]}" | column -t -s '|'
       printf "\n"
-      if [[ "$file" != true ]]; then
-        printf "To see all Alerts run: jq -r . ${extract_dir}/${cluster#/}/$report/config/alerts.json\n"
-      else
-        printf "To see all Alerts run: jq -r . ${extract_dir}/$target/config/alerts.json\n"
-      fi
-      printf "\n"
+      printf "To see all Alerts run: jq -r . ${extract_dir}${cluster}/config/alerts.json\n"
     fi
 
     unset alerts_length
@@ -886,11 +876,6 @@ output() {
     sc_info=true
     customer_memory=true
     uids=true
-  fi
-
-  if [[ "$file" != true ]]; then
-    printf "\n"
-    echo "Checkin: $(date -d "${report:0:8} ${report:8:2}:${report:10:2}:${report:12:2}")"
   fi
 
   printf "\n"
