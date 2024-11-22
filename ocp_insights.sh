@@ -4,7 +4,7 @@
 ## Enable only when debug
 ## set -e
 
-parse_args() {
+parse_args(){
 
   options=$(getopt -n "ocp_insights.sh" -o cfhl --long help,file:,customer_memory,uid,storage_classes,all,etcd_metrics, -- "$@")
 
@@ -40,7 +40,7 @@ parse_args() {
 
 }
 
-run() {
+run(){
 
   if [[ "$cus_memory_report" = true ]]; then
     cus_memory_rpt
@@ -57,7 +57,7 @@ run() {
 
 }
 
-extract_insights_file() {
+extract_insights_file(){
 
   extract_dir="${insights_file:0:-7}"
   mkdir -p ${extract_dir}
@@ -130,7 +130,7 @@ fi
 
 }
 
-pltf_ovirt() {
+pltf_ovirt(){
 
   if $(jq -r '.status.platformStatus | has("ovirt")' config/infrastructure.json);
   then
@@ -146,7 +146,7 @@ pltf_ovirt() {
 
 }
 
-pltf_aws() {
+pltf_aws(){
 
   if $(jq -r '.status.platformStatus | has("aws")' config/infrastructure.json);
   then
@@ -161,7 +161,7 @@ pltf_aws() {
 
 }
 
-pltf_azure() {
+pltf_azure(){
 
   if $(jq -r '.status.platformStatus | has("azure")' config/infrastructure.json);
   then
@@ -177,7 +177,7 @@ pltf_azure() {
 
 }
 
-pltf_baremetal() {
+pltf_baremetal(){
 
   if $(jq -r '.status.platformStatus | has("baremetal")' config/infrastructure.json);
   then
@@ -193,7 +193,7 @@ pltf_baremetal() {
 
 }
 
-pltf_gcp() {
+pltf_gcp(){
 
   if $(jq -r '.status.platformStatus | has("gcp")' config/infrastructure.json);
   then
@@ -209,7 +209,7 @@ pltf_gcp() {
 
 }
 
-pltf_openstack() {
+pltf_openstack(){
 
   if $(jq -r '.status.platformStatus | has("openstack")' config/infrastructure.json);
   then
@@ -226,7 +226,7 @@ pltf_openstack() {
 
 }
 
-pltf_vsphere() {
+pltf_vsphere(){
 
   if $(jq -r '.status.platformStatus | has("vsphere")' config/infrastructure.json);
   then
@@ -242,7 +242,7 @@ pltf_vsphere() {
 
 }
 
-pltf_nutanix() {
+pltf_nutanix(){
 
   if $(jq -r '.status.platformStatus | has("nutanix")' config/infrastructure.json);
   then
@@ -258,7 +258,7 @@ pltf_nutanix() {
 
 }
 
-pltf_ibmcloud() {
+pltf_ibmcloud(){
 
   if $(jq -r '.status.platformStatus | has("ibmcloud")' config/infrastructure.json);
   then
@@ -279,7 +279,7 @@ pltf_ibmcloud() {
 
 }
 
-pltf_external() {
+pltf_external(){
 
   if $(jq -r '.status.platformStatus.type | contains("External")' config/infrastructure.json);
   then
@@ -292,14 +292,14 @@ pltf_external() {
 
 }
 
-pltf_none() {
+pltf_none(){
 
   output "No Platform Provided" "UPI"
   printf "\n"
 
 }
 
-ipi_info() {
+ipi_info(){
 
   # Outputs specific information related to the IPI Installation
 
@@ -339,7 +339,7 @@ ipi_info() {
 
 }
 
-node_status() {
+node_status(){
 
   if [[ "$(ls -A config/node/*.json | wc -l 2>/dev/null)" -ne 0 ]]; then
     nodes_arr=("NAME|READY|ROLE|CREATED ON|VERSION|OS|CPU|MEMORY")
@@ -356,7 +356,7 @@ node_status() {
 
 }
 
-clusteroperator_status() {
+clusteroperator_status(){
 
   if [[ "$(ls -A config/clusteroperator/*.json | wc -l 2>/dev/null)" -ne 0 ]]; then
     clusteroperator_arr=("NAME|VERSION|AVAILABLE|PROGRESSING|DEGRADED")
@@ -371,7 +371,7 @@ clusteroperator_status() {
 
 }
 
-installed_operators() {
+installed_operators(){
 
   if [ -f "config/installplans.json" ];
   then
@@ -389,7 +389,7 @@ installed_operators() {
 
 }
 
-olm_operators() {
+olm_operators(){
 
   if [ -f "config/olm_operators.json" ];
   then
@@ -425,7 +425,7 @@ olm_operators() {
 
 }
 
-namespace_events() {
+namespace_events(){
 
   # Get events with data
   if [ -d "events/" ];
@@ -455,7 +455,7 @@ namespace_events() {
 
 }
 
-cluster_version() {
+cluster_version(){
 
   if [ -f config/version.json ]; then
     cluster_ver=$(jq -r '.status.desired.version' config/version.json)
@@ -482,7 +482,7 @@ cluster_version() {
 
 }
 
-machineconfigpool_info() {
+machineconfigpool_info(){
 
   if [ -d "config/machineconfigpools/" ];
   then
@@ -497,7 +497,7 @@ machineconfigpool_info() {
 
 }
 
-machineset_info() {
+machineset_info(){
 
   machineset_arr=("NAME|DESIRED|CURRENT|READY|AVAILABLE")
   if [ -d "machinesets/openshift-machine-api" ];
@@ -520,7 +520,7 @@ machineset_info() {
 
 }
 
-failing_pods() {
+failing_pods(){
 
   if [ -d config/pod ]; then
     if [[ "$(ls -A config/pod/*/*.json | wc -l 2>/dev/null)" -ne 0 ]]; then
@@ -601,7 +601,7 @@ failing_pods() {
 
 }
 
-uid_overlap() {
+uid_overlap(){
 
   if [ -f config/namespaces_with_overlapping_uids.json ];
   then
@@ -648,8 +648,8 @@ podnetcheck(){
       printf '%s\n' "${podnetcheck_arr[@]}" | column -t -s '|'
       printf "\n"
 
-     printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json\n"
-   fi
+      printf "To see all PodNetworkConnectivityCheck Errors run: jq -r . ${extract_dir}/config/podnetworkconnectivitychecks.json\n"
+  fi
 
     unset podnetcheck_length
     unset podnetcheck_count
@@ -780,14 +780,32 @@ storageclasses(){
 
 etcd_metrics(){
 
-  grep etcd_server_slow_apply_total "config/metrics" | grep etcd-metrics | grep -Ev '^#' | while read -r line; do
-      pod=$(echo "$line" | grep -o "\{.*\}" | awk -F, '{ print $5 }' | grep -Po "etcd-.*(?=[\"])")
-      count=$(echo "$line" | awk '{ print $2 }')
-      echo "$pod,$count"
-  done
+  if grep etcd_server_slow_apply_total "config/metrics" > /dev/null; then
+    printf "etcd server slow apply total\n\n"
+    grep etcd_server_slow_apply_total "config/metrics" | grep etcd-metrics | grep -Ev '^#' | while read -r line; do
+        pod=$(echo "$line" | grep -o "\{.*\}" | awk -F, '{ print $5 }' | grep -Po "etcd-.*(?=[\"])")
+        count=$(echo "$line" | awk '{ print $2 }')
+
+        echo "$pod,$count"
+    done
+    printf "\n"
+  fi
+
+
+
+  if grep etcd_server_slow_read_indexes_total "config/metrics" > /dev/null; then
+    printf "etcd server slow read indexex total\n\n"
+    grep etcd_server_slow_read_indexes_total "config/metrics" | grep etcd-metrics | grep -Ev '^#' | while read -r line; do
+        pod=$(echo "$line" | grep -o "\{.*\}" | awk -F, '{ print $5 }' | grep -Po "etcd-.*(?=[\"])")
+        count=$(echo "$line" | awk '{ print $2 }')
+
+        echo "$pod,$count"
+    done
+  fi
+
 }
 
-output() {
+output(){
 
   if [ "$all" = "true" ]; then
     sc_info=true
@@ -880,7 +898,7 @@ output() {
 
 }
 
-show_help() {
+show_help(){
 
   cat  << ENDHELP
 USAGE: $(basename "$0")
@@ -901,7 +919,7 @@ ENDHELP
 
 }
 
-main() {
+main(){
 
   parse_args "$@"
   run
