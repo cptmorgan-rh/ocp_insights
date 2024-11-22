@@ -6,7 +6,7 @@
 
 parse_args() {
 
-  options=$(getopt -n "ocp_insights.sh" -o cfhl --long help,file:,customer_memory,uid,storage_classes,all,etcd_metrics,customer_memory_report -- "$@")
+  options=$(getopt -n "ocp_insights.sh" -o cfhl --long help,file:,customer_memory,uid,storage_classes,all,etcd_metrics, -- "$@")
 
   if [[ $? != 0 ]]; then
     echo
@@ -29,8 +29,6 @@ parse_args() {
         insights_file=$2;file=true; shift 2;;
       --etcd_metrics)
         etcd_stats=true; shift;;
-      --customer_memory_report)
-        cus_memory_report=true; shift;;
       -h | --help)
         shift; echo; show_help; exit 0;;
       --)
