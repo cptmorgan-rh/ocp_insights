@@ -44,10 +44,6 @@ parse_args() {
 
 run() {
 
-  if [[ "$etcd_stats" = true ]]; then
-    etcd_metrics
-  fi
-
   if [[ "$cus_memory_report" = true ]]; then
     cus_memory_rpt
   fi
@@ -69,6 +65,10 @@ extract_insights_file() {
   mkdir -p ${extract_dir}
   tar xzf "$insights_file" -C ${extract_dir}
   cd ${extract_dir}
+  if [[ "$etcd_stats" = true ]]; then
+    etcd_metrics
+    exit 0
+  fi
   ocp_platform
 
 }
@@ -782,92 +782,11 @@ storageclasses(){
 
 etcd_metrics(){
 
-  # Create temp dir to store metrics files
-  temp_dir=$(mktemp -d)
-
-  #If not previously found then obtain path
-  cluster_path=$(ls -d -1 ${data_src_path}/**/"${cluster_id}" 2>/dev/null)
-
-  #In some cases two directories will be returned
-  #This will go through both to check to see the directories
-  #have content
-  for i in ${cluster_path}; do
-    if [[ "$(ls -A $i | wc -l 2>/dev/null)" -ne 0 ]]; then
-      cluster=$(echo "$i" | awk '{ print $1 }')
-    fi
+  grep etcd_server_slow_apply_total "config/metrics" | grep etcd-metrics | grep -Ev '^#' | while read -r line; do
+      pod=$(echo "$line" | grep -o "\{.*\}" | awk -F, '{ print $5 }' | grep -Po "etcd-.*(?=[\"])")
+      count=$(echo "$line" | awk '{ print $2 }')
+      echo "$pod,$count"
   done
-
-  if [[ ! "$(ls -A "$cluster" 2>/dev/null)" ]]; then
-    echo "No Insights data found for ClusterID: ${cluster_id}"
-    exit 1
-  fi
-
-  for i in $(ls ${cluster}); do
-    mkdir -p $temp_dir/$i
-    tar -zxf ${cluster}/$i -C $temp_dir/$i config/metrics
-    grep etcd_server_slow_apply_total $temp_dir/$i/config/metrics | grep etcd-metrics | grep -Ev '^#' | while read -r line; do
-        pod=$(echo "$line" | grep -o "\{.*\}" | awk -F, '{ print $5 }' | grep -Po "etcd-.*(?=[\"])")
-        count=$(echo "$line" | awk '{ print $2 }')
-        date_time=$(echo $i | awk '{ print $1 }')
-        year=${date_time:0:4}
-        month=${date_time:4:2}
-        day=${date_time:6:2}
-        hour=${date_time:8:2}
-        minute=${date_time:10:2}
-        formatted_date_time="${year}-${month}-${day} ${hour}:${minute}"
-        echo "$pod,$formatted_date_time,$count"
-    done
-  done
-
-  rm -rf "$temp_dir"
-
-  exit 0
-
-}
-
-cus_memory_rpt(){
-
-  # Create temp dir to store metrics files
-  temp_dir=$(mktemp -d)
-
-  #If not previously found then obtain path
-  cluster_path=$(ls -d -1 ${data_src_path}/**/"${cluster_id}" 2>/dev/null)
-
-  #In some cases two directories will be returned
-  #This will go through both to check to see the directories
-  #have content
-  for i in ${cluster_path}; do
-    if [[ "$(ls -A $i | wc -l 2>/dev/null)" -ne 0 ]]; then
-      cluster=$(echo "$i" | awk '{ print $1 }')
-    fi
-  done
-
-  if [[ ! "$(ls -A "$cluster" 2>/dev/null)" ]]; then
-    echo "No Insights data found for ClusterID: ${cluster_id}"
-    exit 1
-  fi
-
-  for i in $(ls ${cluster}); do
-    mkdir -p $temp_dir/$i
-    tar -zxf ${cluster}/$i -C $temp_dir/$i config/metrics
-    namespaces=$(grep '^namespace:container_memory_usage_bytes:sum' $temp_dir/$i/config/metrics | awk -F, '{ print $1 }' | sed -e 's/namespace:container_memory_usage_bytes:sum{namespace=//' | sed -e 's/"//g' | sort -n | grep -Ev '^openshift|^default|^kube-[snp]')
-    for x in $namespaces; do
-      ns_mem_usage=$(grep '^namespace:container_memory_usage_bytes:sum' $temp_dir/$i/config/metrics | grep "namespace=\"$x\"" | sed -e 's/prometheus="openshift-monitoring//g' | sed -e 's/"//g' | awk '{ print $(NF-1)}' | xargs printf "%.0f\n" )
-      date_time=$(echo $i | awk '{ print $1 }')
-      year=${date_time:0:4}
-      month=${date_time:4:2}
-      day=${date_time:6:2}
-      hour=${date_time:8:2}
-      minute=${date_time:10:2}
-      formatted_date_time="${year}-${month}-${day} ${hour}:${minute}"
-      echo "$x,$formatted_date_time,$ns_mem_usage"
-    done
-  done
-
-  rm -rf "$temp_dir"
-
-  exit 0
-
 }
 
 output() {
@@ -978,7 +897,6 @@ Options:
       --file                      Run the script against a specific insights file
                                     E.g.: $(basename "$0") --file ~/insights_archive.tar.gz
       --etcd_metrics              Returns metrics from Insights Metrics Data
-      --customer_memory_report    Returns metrics from Insights Metrics Data
   -h, --help                      Shows this help message.
 
 ENDHELP
