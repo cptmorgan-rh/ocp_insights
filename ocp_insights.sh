@@ -97,6 +97,7 @@ ocp_platform(){
       OpenStack)
         pltf_openstack "$platform"
         ;;
+
       oVirt)
         pltf_ovirt "$platform"
         ;;
@@ -106,6 +107,10 @@ ocp_platform(){
         ;;
 
       Baremetal)
+        pltf_baremetal "$platform"
+        ;;
+
+      BareMetal)
         pltf_baremetal "$platform"
         ;;
 
