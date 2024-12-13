@@ -66,6 +66,10 @@ ocp_platform(){
       pltf_baremetal "$platform"
       ;;
 
+    BareMetal)
+      pltf_baremetal "$platform"
+      ;;
+
     IBMCloud)
       pltf_ibmcloud "$platform"
       ;;
