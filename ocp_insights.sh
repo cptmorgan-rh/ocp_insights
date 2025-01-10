@@ -49,12 +49,14 @@ run(){
   if [[ "$file" == true ]]; then
     if [[ -f "$insights_file" ]]; then
       extract_insights_file
+    elif [[ -d "$insights_file" ]]; then
+      cd $insights_file
+      ocp_platform
     else
       echo -n "File not found."
       exit 127
     fi
   fi
-
 }
 
 extract_insights_file(){
@@ -915,7 +917,7 @@ Options:
         --customer_memory         Lists memory usage for non-OpenShift Cluster Namespaces
         --uid                     Lists Namespaces with overlapping UIDs
         --storage_classes         Lists Storage Class information
-      --file                      Run the script against a specific insights file
+      --file                      Run the script against a specific compressed insights archive or extracted insights directory  
                                     E.g.: $(basename "$0") --file ~/insights_archive.tar.gz
       --etcd_metrics              Returns metrics from Insights Metrics Data
   -h, --help                      Shows this help message.
