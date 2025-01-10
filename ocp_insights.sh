@@ -51,6 +51,10 @@ run(){
       extract_insights_file
     elif [[ -d "$insights_file" ]]; then
       cd $insights_file
+      if [[ "$etcd_stats" = true ]]; then
+        etcd_metrics
+        exit 0
+      fi
       ocp_platform
     else
       echo -n "File not found."
