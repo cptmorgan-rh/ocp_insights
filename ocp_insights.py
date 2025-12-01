@@ -286,6 +286,22 @@ def check_in_time(file_path: str) -> str:
     return check_in_date.strftime("%a %b %d %I:%M:%S %p UTC %Y")
 
 
+def safe_extract_file(tar: tarfile.TarFile, filename: str):
+    """Safely extract a file from the tar archive.
+
+    Args:
+        tar (tarfile.TarFile): Insights Archive
+        filename (str): Name of the file to extract
+
+    Returns:
+        file object or None: The extracted file object, or None if file not found
+    """
+    try:
+        return tar.extractfile(filename)
+    except KeyError:
+        return None
+
+
 def parse_version_file(
     tar: tarfile.TarFile,
 ) -> tuple:
@@ -298,8 +314,12 @@ def parse_version_file(
         tuple: Cluster ID, Version, Channel, Install History, Partial Install History,
             Failing Reason, and Failing Message.
     """
-    with tar.extractfile("config/version.json") as version_file:
-        version_json = json.load(version_file)
+    version_file = safe_extract_file(tar, "config/version.json")
+    if version_file is None:
+        print("Warning: config/version.json not found in archive, using default values")
+        return ("N/A", "N/A", "N/A", [], [], "", "")
+
+    version_json = json.load(version_file)
 
     cluster_id = version_json["spec"]["clusterID"]
     version = version_json["status"]["desired"]["version"]
@@ -342,7 +362,11 @@ def parse_infra_file(tar: tarfile.TarFile, tar_files: list) -> tuple:
         Tuple[str, str]: Platform and Version
     """
     install_method: str = "Unknown"
-    infra_file = tar.extractfile("config/infrastructure.json")
+    infra_file = safe_extract_file(tar, "config/infrastructure.json")
+    if infra_file is None:
+        print("Warning: config/infrastructure.json not found in archive, using default values")
+        return ("N/A", "N/A", "Unknown")
+
     infra_json = json.loads(infra_file.read().decode("utf-8"))
     platform = infra_json["status"]["platform"]
     # Get cluster name - use etcdDiscoveryDomain if available, otherwise use apiServerURL
@@ -356,7 +380,10 @@ def parse_infra_file(tar: tarfile.TarFile, tar_files: list) -> tuple:
     install_method = "UPI"  # Default installation method
     for file in tar_files:
         if "invoker" in file:
-            invoker_content = tar.extractfile(file).read().decode("utf-8")
+            invoker_file = safe_extract_file(tar, file)
+            if invoker_file is None:
+                continue
+            invoker_content = invoker_file.read().decode("utf-8")
             # Define a mapping of keywords to installation methods
             install_method_map = {
                 "assisted-installer": "Assisted Installer",
@@ -386,11 +413,49 @@ def parse_network_file(tar: tarfile.TarFile) -> str:
     Returns:
         str: Network Type (OVNKubernetes, OpenShiftSDN, Calico)
     """
-    network_file = tar.extractfile("config/network.json")
+    network_file = safe_extract_file(tar, "config/network.json")
+    if network_file is None:
+        print("Warning: config/network.json not found in archive")
+        return "N/A"
+
     network_json = json.loads(network_file.read().decode("utf-8"))
     network_type = network_json["spec"]["networkType"]
 
     return network_type
+
+
+def check_ipsec_status(tar: tarfile.TarFile, tar_files: list) -> str:
+    """Check if IPsec is enabled by looking for ipsecConfig in network operator config
+
+    Args:
+        tar (tarfile.TarFile): Insights Archive
+        tar_files (list): List of files in the archive
+
+    Returns:
+        str: "Enabled" if ipsecConfig is present, "Disabled" otherwise
+    """
+    network_operator_file = safe_extract_file(
+        tar, "config/clusteroperator/operator.openshift.io/network/cluster.json"
+    )
+
+    if network_operator_file is None:
+        return "Disabled"
+
+    try:
+        net_op_json = json.loads(network_operator_file.read().decode("utf-8"))
+
+        # Check if ipsecConfig exists in the defaultNetwork spec
+        default_network = net_op_json.get("spec", {}).get("defaultNetwork", {})
+
+        if "ovnKubernetesConfig" in default_network:
+            ovn_config = default_network["ovnKubernetesConfig"]
+            if "ipsecConfig" in ovn_config:
+                return "Enabled"
+
+    except (KeyError, json.JSONDecodeError):
+        return "Disabled"
+
+    return "Disabled"
 
 
 def parse_proxy_file(tar: tarfile.TarFile) -> tuple:
@@ -402,7 +467,11 @@ def parse_proxy_file(tar: tarfile.TarFile) -> tuple:
     Returns:
         Tuple: HTTP, HTTP Proxy status
     """
-    proxy_file = tar.extractfile("config/proxy.json")
+    proxy_file = safe_extract_file(tar, "config/proxy.json")
+    if proxy_file is None:
+        print("Warning: config/proxy.json not found in archive")
+        return False, False
+
     proxy_json = json.loads(proxy_file.read().decode("utf-8"))
 
     httpproxy = False
@@ -425,7 +494,11 @@ def parse_apiserver_file(tar: tarfile.TarFile) -> tuple:
     Returns:
         tuple: Etcd Encryption Method (or None) and Audit Profile.
     """
-    api_file = tar.extractfile("config/apiserver.json")
+    api_file = safe_extract_file(tar, "config/apiserver.json")
+    if api_file is None:
+        print("Warning: config/apiserver.json not found in archive")
+        return "None", "N/A"
+
     api_json = json.loads(api_file.read().decode("utf-8"))
 
     # Use a dictionary to map encryption types for better readability
@@ -438,6 +511,30 @@ def parse_apiserver_file(tar: tarfile.TarFile) -> tuple:
     audit_profile = api_json["spec"]["audit"]["profile"]
 
     return etcd_encryption, audit_profile
+
+
+def parse_csr_files(tar: tarfile.TarFile, file_list: list) -> int:
+    """Parses CSR Files and returns count of pending CSRs
+
+    Args:
+        tar (tarfile.TarFile): Insights Archive
+        file_list (List): List of files that match regex from file_files function
+
+    Returns:
+        int: Count of pending CSRs (where Status.Conditions is None)
+    """
+    pending_count = 0
+    for file in file_list:
+        csr = safe_extract_file(tar, file)
+        if csr is None:
+            continue
+        csr_json = json.loads(csr.read().decode("utf-8"))
+        # A CSR is pending if Status.Conditions is None or empty
+        conditions = csr_json.get("Status", {}).get("Conditions")
+        if conditions is None or (isinstance(conditions, list) and len(conditions) == 0):
+            pending_count += 1
+
+    return pending_count
 
 
 def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
@@ -453,7 +550,9 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
     """
     node_info: list = []
     for file in file_list:
-        node = tar.extractfile(file)
+        node = safe_extract_file(tar, file)
+        if node is None:
+            continue
         node_json = json.loads(node.read().decode("utf-8"))
         node_name = node_json["metadata"]["name"]
         node_status = next(
@@ -476,7 +575,20 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
         node_os_image = node_json["status"]["nodeInfo"]["osImage"]
         node_cpu_count = node_json["status"]["capacity"]["cpu"]
         node_mem_capacity_raw = node_json["status"]["capacity"]["memory"]
-        node_mem_capacity = round(int(node_mem_capacity_raw[:-2]) / MEMORY_CONVERSION_MB)
+
+        # Parse memory capacity with proper unit handling
+        if node_mem_capacity_raw.endswith("Ki"):
+            # Kibibytes to GiB: divide by 1024^2
+            node_mem_capacity = round(int(node_mem_capacity_raw[:-2]) / (1024 * 1024))
+        elif node_mem_capacity_raw.endswith("Mi"):
+            # Mebibytes to GiB: divide by 1024
+            node_mem_capacity = round(int(node_mem_capacity_raw[:-2]) / 1024)
+        elif node_mem_capacity_raw.endswith("Gi"):
+            # Gibibytes to GiB: no conversion needed
+            node_mem_capacity = round(int(node_mem_capacity_raw[:-2]))
+        else:
+            # Assume bytes if no unit specified
+            node_mem_capacity = round(int(node_mem_capacity_raw) / MEMORY_CONVERSION_MB / 1024)
         node_info.append(
             {
                 "NAME": node_name,
@@ -525,8 +637,10 @@ def parse_cluster_operator_files(tar: tarfile.TarFile, file_list: list) -> Optio
     cluster_operator_info: list = []
 
     for file in file_list:
-        with tar.extractfile(file) as cluster_operator:
-            co_json = json.load(cluster_operator)
+        cluster_operator = safe_extract_file(tar, file)
+        if cluster_operator is None:
+            continue
+        co_json = json.load(cluster_operator)
 
         co_name = co_json["metadata"]["name"]
         co_version = next(
@@ -570,8 +684,10 @@ def parse_install_plans(tar: tarfile.TarFile) -> Optional[list]:
         or None if no install plans are found.
     """
     try:
-        with tar.extractfile("config/installplans.json") as installplans_file:
-            installplan_json = json.load(installplans_file)
+        installplans_file = safe_extract_file(tar, "config/installplans.json")
+        if installplans_file is None:
+            return None
+        installplan_json = json.load(installplans_file)
 
         # Check if there are any install plans before continuing
         if installplan_json["stats"]["TOTAL_COUNT"] == 0:
@@ -600,8 +716,11 @@ def parse_olm_operators(tar: tarfile.TarFile) -> Optional[list]:
         Optional[List[Dict[str, str]]]: List of dictionaries containing Name, DisplayName,
         Version, and Namespace, or None if no operators are found.
     """
-    with tar.extractfile("config/olm_operators.json") as olm_file:
-        olm_json = json.load(olm_file)
+    olm_file = safe_extract_file(tar, "config/olm_operators.json")
+    if olm_file is None:
+        return None
+
+    olm_json = json.load(olm_file)
 
     # Return None if olm_json is empty
     if not olm_json:
@@ -667,7 +786,7 @@ def parse_machineconfigpools(tar: tarfile.TarFile, file_list: list) -> list:
             "DEGRADEDMACHINECOUNT": mcp_json["status"]["degradedMachineCount"],
         }
         for file in file_list
-        if (machineconfigpool := tar.extractfile(file))
+        if (machineconfigpool := safe_extract_file(tar, file))
         and (mcp_json := json.loads(machineconfigpool.read().decode("utf-8")))
     ]
 
@@ -697,7 +816,7 @@ def parse_machinesets(tar: tarfile.TarFile, file_list: list) -> list:
             "AVAILABLE": machineset_json["status"].get("availableReplicas", "0"),
         }
         for file in file_list
-        if (machineset := tar.extractfile(file))
+        if (machineset := safe_extract_file(tar, file))
         and (machineset_json := json.loads(machineset.read().decode("utf-8")))
     ]
 
@@ -727,7 +846,7 @@ def parse_storageclasses(tar: tarfile.TarFile, file_list: list) -> list:
             "VOLUME EXPANSION": storageclass_json.get("allowVolumeExpansion", None),
         }
         for file in file_list
-        if (storageclass := tar.extractfile(file))
+        if (storageclass := safe_extract_file(tar, file))
         and (storageclass_json := json.loads(storageclass.read().decode("utf-8")))
     ]
 
@@ -751,7 +870,9 @@ def parse_ns_memory(tar: tarfile.TarFile, use_case: str) -> None:
     ocp_ns_memory_total: int = 0
 
     try:
-        metrics_file = tar.extractfile("config/metrics")
+        metrics_file = safe_extract_file(tar, "config/metrics")
+        if metrics_file is None:
+            return
         metrics_data = metrics_file.read().decode("utf-8").splitlines()
 
         # Include or exclude namespaces based on use case
@@ -833,7 +954,7 @@ def parse_failing_pods(tar: tarfile.TarFile, file_list: list) -> list:
             "REASON": condition.get("reason", ""),
         }
         for file in file_list
-        if (pod := tar.extractfile(file))
+        if (pod := safe_extract_file(tar, file))
         and (pod_json := json.loads(pod.read().decode("utf-8")))
         for condition in pod_json.get("status", {}).get("conditions", [])
         if condition.get("type") == "Ready" and condition.get("status") == "False"
@@ -862,7 +983,7 @@ def parse_unschedulable_pods(tar: tarfile.TarFile, file_list: list) -> list:
             "REASON": condition.get("message", ""),
         }
         for file in file_list
-        if (pod := tar.extractfile(file))
+        if (pod := safe_extract_file(tar, file))
         and (pod_json := json.loads(pod.read().decode("utf-8")))
         for condition in pod_json.get("status", {}).get("conditions", [])
         if condition.get("type") == "PodScheduled"
@@ -888,7 +1009,7 @@ def parse_restarting_pods(tar: tarfile.TarFile, file_list: list) -> list:
     restarting_pods_info: list = []
 
     for file in file_list:
-        pod = tar.extractfile(file)
+        pod = safe_extract_file(tar, file)
         if pod:
             pod_json = json.loads(pod.read().decode("utf-8"))
             for container in pod_json.get("status", {}).get("containerStatuses", []):
@@ -936,19 +1057,21 @@ def parse_event_files(
     event_list: list = []
 
     for file in file_list:
-        with tar.extractfile(file) as event_file:
-            event_json = json.load(event_file)
-            warnings = [
-                {
-                    "NAMESPACE": event["namespace"],
-                    "TYPE": event["type"],
-                    "REASON": event["reason"],
-                    "TIME": event["lastTimestamp"].replace("T", " ").rstrip("Z"),
-                }
-                for event in event_json.get("items", [])
-                if event.get("type") == "Warning"
-            ]
-            event_list.extend(warnings)
+        event_file = safe_extract_file(tar, file)
+        if event_file is None:
+            continue
+        event_json = json.load(event_file)
+        warnings = [
+            {
+                "NAMESPACE": event["namespace"],
+                "TYPE": event["type"],
+                "REASON": event["reason"],
+                "TIME": event["lastTimestamp"].replace("T", " ").rstrip("Z"),
+            }
+            for event in event_json.get("items", [])
+            if event.get("type") == "Warning"
+        ]
+        event_list.extend(warnings)
 
     if all_events:
         if event_list:
@@ -985,23 +1108,25 @@ def parse_alerts(tar: tarfile.TarFile, filters: dict) -> Optional[list]:
     """
     alerts_info: list = []
     try:
-        with tar.extractfile("config/alerts.json") as alerts:
-            alerts_json = json.load(alerts)
+        alerts = safe_extract_file(tar, "config/alerts.json")
+        if alerts is None:
+            return None
+        alerts_json = json.load(alerts)
 
-            if filters.get("alerts"):
-                print(json.dumps(alerts_json, indent=4))
-                sys.exit(0)
-            # Filter alerts based on conditions
-            alerts_info: list = [
-                {
-                    "ALERT NAME": alert["labels"]["alertname"],
-                    "STATE": alert["status"]["state"].upper(),
-                    "START TIME": alert["startsAt"].replace("T", " ").rstrip("Z"),
-                }
-                for alert in alerts_json
-                if alert["labels"]["alertname"] != "Watchdog"
-                and alert["status"]["state"] != "suppressed"
-            ]
+        if filters.get("alerts"):
+            print(json.dumps(alerts_json, indent=4))
+            sys.exit(0)
+        # Filter alerts based on conditions
+        alerts_info: list = [
+            {
+                "ALERT NAME": alert["labels"]["alertname"],
+                "STATE": alert["status"]["state"].upper(),
+                "START TIME": alert["startsAt"].replace("T", " ").rstrip("Z"),
+            }
+            for alert in alerts_json
+            if alert["labels"]["alertname"] != "Watchdog"
+            and alert["status"]["state"] != "suppressed"
+        ]
 
         return alerts_info or None
 
@@ -1019,8 +1144,11 @@ def parse_podnetchecks(tar: tarfile.TarFile) -> Optional[list]:
         Optional[List[Tuple[str, str]]]: A List of tuples containing error messages
         and their corresponding date and time, or None if the JSON structure is invalid.
     """
-    with tar.extractfile("config/podnetworkconnectivitychecks.json") as podnetcheck:
-        podnetcheck_json = json.load(podnetcheck)
+    podnetcheck = safe_extract_file(tar, "config/podnetworkconnectivitychecks.json")
+    if podnetcheck is None:
+        return None
+
+    podnetcheck_json = json.load(podnetcheck)
 
     if not isinstance(podnetcheck_json, dict):
         return None
@@ -1073,14 +1201,18 @@ def print_etcd_metrics(dir_path: str, cluster_id: str) -> None:
                 print(f"Cluster {cluster_id} does not contain metrics.")
                 sys.exit(1)
 
-            with tar.extractfile("config/metrics") as metrics_file:
-                for line in metrics_file:
-                    line = line.decode("utf-8").strip()
-                    if match := re.search(pattern, line):
-                        # Extract both values
-                        pod_name, count = match.groups()
-                        # Print in CSV format
-                        print(f"{pod_name},{check_in_time(file)},{count}")
+            metrics_file = safe_extract_file(tar, "config/metrics")
+            if metrics_file is None:
+                print(f"Cluster {cluster_id} does not contain metrics.")
+                sys.exit(1)
+
+            for line in metrics_file:
+                line = line.decode("utf-8").strip()
+                if match := re.search(pattern, line):
+                    # Extract both values
+                    pod_name, count = match.groups()
+                    # Print in CSV format
+                    print(f"{pod_name},{check_in_time(file)},{count}")
 
 
 def find_files(tar_files: list, regex_string: str) -> list:
@@ -1283,6 +1415,10 @@ def process_insights_data(
     # Parse network.json files
     print(f"Network Type: {parse_network_file(insights_archive)}")
 
+    # Check IPsec status
+    ipsec_status = check_ipsec_status(insights_archive, insights_archive_file)
+    print(f"IPsec: {ipsec_status}")
+
     # Parse proxy.json file
     http_proxy, https_proxy = parse_proxy_file(insights_archive)
     print(f"Proxy Settings:\n   HTTP:  {http_proxy}\n   HTTPS: {https_proxy}\n")
@@ -1297,6 +1433,7 @@ def process_insights_data(
 
     # Process various configuration files
     file_patterns = {
+        "csr": "^config/certificatesigningrequests/[^/]+.json$",
         "node": "^config/node/[^/]+.json$",
         "co": "^config/clusteroperator/[^/]+.json$",
         "mcp": "^config/machineconfigpools/[^/]+.json$",
@@ -1308,7 +1445,10 @@ def process_insights_data(
 
     for key, pattern in file_patterns.items():
         files = find_files(insights_archive_file, pattern)
-        if key == "node":
+        if key == "csr":
+            pending_csr_count = parse_csr_files(insights_archive, files)
+            print(f"\nPending CSRs: {pending_csr_count}")
+        elif key == "node":
             print_parsed_output(parse_node_files, insights_archive, files)
         elif key == "co":
             print_parsed_output(parse_cluster_operator_files, insights_archive, files)
