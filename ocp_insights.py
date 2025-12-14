@@ -537,6 +537,18 @@ def parse_csr_files(tar: tarfile.TarFile, file_list: list) -> int:
     return pending_count
 
 
+def natural_sort_key(text: str) -> list:
+    """Generate a key for natural sorting of strings containing numbers.
+
+    Args:
+        text (str): String to generate sort key for
+
+    Returns:
+        list: Sort key that handles numeric portions as integers
+    """
+    return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', text)]
+
+
 def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
     """Parses Node Files and returns information about nodes
 
@@ -570,7 +582,7 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
                 if "node-role.kubernetes.io/" in key
             ]
         )
-        node_creation_date = node_json["metadata"]["creationTimestamp"]
+        node_creation_date = node_json["metadata"]["creationTimestamp"].replace("T", " ").rstrip("Z")
         node_kubelet_version = node_json["status"]["nodeInfo"]["kubeletVersion"]
         node_os_image = node_json["status"]["nodeInfo"]["osImage"]
         node_cpu_count = node_json["status"]["capacity"]["cpu"]
@@ -617,9 +629,9 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
         "worker": 5,
     }
 
-    # Sort based on Role for cleaner output to ensure master/control plane is first
+    # Sort based on Role for cleaner output to ensure master/control plane is first, then by name
     return sorted(
-        reversed(node_info), key=lambda x: role_priority.get(x["ROLE"], 6)
+        reversed(node_info), key=lambda x: (role_priority.get(x["ROLE"], 6), natural_sort_key(x["NAME"]))
     )
 
 
@@ -1171,6 +1183,70 @@ def parse_podnetchecks(tar: tarfile.TarFile) -> Optional[list]:
     return None
 
 
+def parse_conditional_update_risks(tar: tarfile.TarFile) -> Optional[list]:
+    """Parse conditional update risks from version.json file.
+
+    Args:
+        tar (tarfile.TarFile): The tar file for the Insights Archive.
+
+    Returns:
+        Optional[List[Dict[str, str]]]: A List of dictionaries containing risk name,
+        reference URL, and affected versions, or None if no conditional updates exist.
+    """
+    version_file = safe_extract_file(tar, "config/version.json")
+    if version_file is None:
+        return None
+
+    try:
+        version_json = json.load(version_file)
+        conditional_updates = version_json.get("status", {}).get("conditionalUpdates", [])
+
+        if not conditional_updates:
+            return None
+
+        # Dictionary to collect risks and their affected versions
+        risk_data = {}
+
+        for update in conditional_updates:
+            release = update.get("release", {})
+            version = release.get("version", "Unknown")
+            risks = update.get("risks", [])
+
+            for risk in risks:
+                risk_name = risk.get("name", "Unknown")
+                risk_url = risk.get("url", "N/A")
+
+                # Use risk name as key to group versions
+                if risk_name not in risk_data:
+                    risk_data[risk_name] = {
+                        "url": risk_url,
+                        "versions": []
+                    }
+
+                # Add version if not already in list
+                if version not in risk_data[risk_name]["versions"]:
+                    risk_data[risk_name]["versions"].append(version)
+
+        # Convert to list format for output
+        risks_info = [
+            {
+                "RISK": risk_name,
+                "REFERENCE": data["url"],
+                "AFFECTED_VERSIONS": ", ".join(sorted(data["versions"]))
+            }
+            for risk_name, data in risk_data.items()
+        ]
+
+        if risks_info:
+            print("\nConditional Update Risks:")
+            return sorted(risks_info, key=lambda x: x["RISK"])
+
+        return None
+
+    except (KeyError, json.JSONDecodeError):
+        return None
+
+
 def print_etcd_metrics(dir_path: str, cluster_id: str) -> None:
     """Extracts and prints pod names and etcd_server_slow_apply_total count.
 
@@ -1481,6 +1557,9 @@ def process_insights_data(
 
     # Parse and print pod network checks
     print_parsed_output(parse_podnetchecks, insights_archive)
+
+    # Parse and print conditional update risks
+    print_parsed_output(parse_conditional_update_risks, insights_archive)
 
 
 def main():

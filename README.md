@@ -17,7 +17,10 @@ This script has been significantly refactored to follow Python best practices:
 - **Performance**: Optimized memory calculations and file operations
 - **Maintainability**: Extracted constants and improved code organization
 - **Error Handling**: More specific exception handling for better debugging
+- **Code Consistency**: Refactored functions to use common helper methods (`safe_extract_file`) for uniform error handling and code patterns
 - **Python Compatibility**: Compatible with Python 3.9+ using proper typing syntax
+- **Improved Readability**: Node creation timestamps now display in a more readable format (e.g., `2025-11-05 02:40:03` instead of `2025-11-05T02:40:03Z`)
+- **Conditional Update Risks**: Display update risks and affected versions from the cluster version file to help identify potential upgrade issues
 
 REQUIREMENTS
 ------------
@@ -151,11 +154,13 @@ Proxy Settings:
 etcd Encryption: None
 Audit Profile: Default
 
-NAME                READY  ROLE                                                 CREATED ON            VERSION          OS                                                     CPU  MEMORY
-nyc-acp-n1.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06T07:20:55Z  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
-nyc-acp-n2.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06T07:17:31Z  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
-nyc-acp-n3.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06T07:41:52Z  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
-nyc-acp-n4.nyc.lab  True   worker,worker-hp                                     2024-01-06T08:41:40Z  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+Pending CSRs: 0
+
+NAME                READY  ROLE                                                 CREATED ON           VERSION          OS                                                     CPU  MEMORY
+nyc-acp-n1.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:20:55  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n2.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:17:31  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n3.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:41:52  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n4.nyc.lab  True   worker,worker-hp                                     2024-01-06 08:41:40  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
 
 Cluster Operators:
 
@@ -463,7 +468,26 @@ TargetDown                          ACTIVE  2025-03-17T20:30:04.000Z
 TargetDown                          ACTIVE  2025-03-17T20:30:04.000Z
 KubeJobFailed                       ACTIVE  2025-03-17T20:30:28.460Z
 KubeContainerWaiting                ACTIVE  2025-03-17T21:15:28.460Z
-IngressWithoutClassName             ACTIVE  2025-03-21T05:48:35.236Z$
+IngressWithoutClassName             ACTIVE  2025-03-21T05:48:35.236Z
+
+PodNetworkConnectivitChecks:
+
+ERROR                                 TIMESTAMP
+kubernetes-default-service-cluster-0  2025-12-03 16:21:54Z
+load-balancer-api-external            2025-12-03 17:18:55Z
+load-balancer-api-internal            2025-12-03 17:07:55Z
+openshift-apiserver-service-cluster   2025-12-03 17:11:54Z
+
+Conditional Update Risks:
+
+RISK                                     REFERENCE                                         AFFECTED_VERSIONS
+ConsoleEnabledTargetDownAlert            https://issues.redhat.com/browse/CONSOLE-4632     4.18.12, 4.18.13, 4.18.14, 4.18.15, 4.18.16, 4.18.17
+ContinuousNodeRebootingDueToKernelPanic  https://issues.redhat.com/browse/COS-3700         4.18.24, 4.18.25, 4.18.26
+CrunConflictsWithNVIDIA                  https://issues.redhat.com/browse/RUN-3446         4.18.22, 4.18.23
+HyperShiftClusterVersionOperatorMetrics  https://issues.redhat.com/browse/OTA-1705         4.18.23, 4.18.24, 4.18.25, 4.18.26
+HyperShiftProxyScheme                    https://issues.redhat.com/browse/CNTRLPLANE-1407  4.18.22, 4.18.23, 4.18.24
+MetallbBgpBfdFrrRpm                      https://issues.redhat.com/browse/CNF-17689        4.18.10, 4.18.11
+NMStateServiceFailure                    https://issues.redhat.com/browse/CORENET-6419     4.18.22, 4.18.23, 4.18.24
 ```
 
 CONTRIBUTING
