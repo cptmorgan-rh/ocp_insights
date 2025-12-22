@@ -1101,7 +1101,7 @@ def parse_event_files(
                 seen_namespaces.add(namespace)
                 unique_entries.append(entry)
 
-        print("\nNamespace Errors:")
+        print("\nNamespace Event Errors:")
 
         return unique_entries
 
@@ -1177,7 +1177,7 @@ def parse_podnetchecks(tar: tarfile.TarFile) -> Optional[list]:
     ]
 
     if podnetcheck_info:
-        print("\nPodNetworkConnectivitChecks: ")
+        print("\PodNetworkConnectivityChecks: ")
         return podnetcheck_info
 
     return None
@@ -1351,7 +1351,7 @@ def parse_arguments() -> dict:
     Returns:
         dict: Returns a dictionary of the results from the parser
     """
-    parser = argparse.ArgumentParser(description="OpenShift InsightsCluster Report.")
+    parser = argparse.ArgumentParser(description="OpenShift Insights Cluster Report.")
     parser.add_argument(
         "--id",
         type=str,
@@ -1373,7 +1373,7 @@ def parse_arguments() -> dict:
     parser.add_argument(
         "--etcd_metrics",
         action="store_true",
-        help="Prints etcd metrics for all Insights Archives for the cluster.",
+        help="Prints etcd Slow Apply metrics for all Insights Archives for the cluster.",
     )
     parser.add_argument(
         "--events",
@@ -1389,6 +1389,21 @@ def parse_arguments() -> dict:
         "--extract",
         action="store_true",
         help="Extract archive for a specific cluster to user's home directory. Must be used with --id option. Can be combined with --list to select which archive to extract.",
+    )
+    parser.add_argument(
+        "--cluster_info",
+        action="store_true",
+        help="Prints only cluster information (ID, name, version, platform, network, encryption, etc.).",
+    )
+    parser.add_argument(
+        "--node_info",
+        action="store_true",
+        help="Prints only node information (name, status, role, version, OS, CPU, memory).",
+    )
+    parser.add_argument(
+        "--cluster_operators",
+        action="store_true",
+        help="Prints only cluster operator information (name, version, status).",
     )
 
     args = parser.parse_args()
@@ -1423,6 +1438,167 @@ def parse_arguments() -> dict:
         sys.exit(0)
 
     return vars(args)
+
+
+def print_cluster_info(
+    directory: Optional[str], filters: dict, cluster_id: Optional[str]
+) -> None:
+    """Prints only cluster information (ID, name, version, platform, network, encryption, etc.)
+
+    Args:
+        directory (str): Location of OpenShift Insights Archive for Cluster
+        filters (Dict[str, Optional[str]]): Parse Args dict
+        cluster_id (str): Cluster ID
+
+    Returns:
+        None: This function prints the results directly to the console.
+    """
+
+    newest_file: str = ""
+    insights_archive = None
+
+    if filters.get("id"):
+        newest_file = find_newest_file(directory)
+        if not newest_file:
+            print(f"No Insights Data found for Cluster {cluster_id}.")
+            return
+
+        insights_archive = read_insights_file(newest_file)
+
+    if filters.get("file"):
+        insights_archive = read_insights_file(filters.get("file"))
+
+    insights_archive_file = insights_archive.getnames()
+
+    # Unpack version information
+    (
+        cluster_id,
+        cluster_version,
+        cluster_channel,
+        previous_installs,
+        partial_installs,
+        cluster_status,
+        cluster_message,
+    ) = parse_version_file(insights_archive)
+
+    # Print basic cluster information
+    if filters.get("id"):
+        print(f"Checkin: {check_in_time(newest_file)}\n")
+
+    # Parse infrastructure.json
+    platform, cluster_name, install_method = parse_infra_file(
+        insights_archive, insights_archive_file
+    )
+    print(f"Cluster ID: {cluster_id}")
+    print(f"Cluster Name: {cluster_name}")
+    print(f"Cluster Version: {cluster_version}")
+    print(f"Channel: {cluster_channel}")
+    print(f"Previous Versions: {', '.join(previous_installs)}")
+
+    if partial_installs:
+        print(f"Partial Installs: {', '.join(partial_installs)}\n")
+
+    if cluster_status:
+        print(
+            f"Cluster Status: Failing\nReason: {cluster_status}\nMessage: {cluster_message}"
+        )
+
+    print(f"Platform: {platform}\nInstall Type: {install_method}")
+    # Parse network.json files
+    print(f"Network Type: {parse_network_file(insights_archive)}")
+
+    # Check IPsec status
+    ipsec_status = check_ipsec_status(insights_archive, insights_archive_file)
+    print(f"IPsec: {ipsec_status}")
+
+    # Parse proxy.json file
+    http_proxy, https_proxy = parse_proxy_file(insights_archive)
+    print(f"Proxy Settings:\n   HTTP:  {http_proxy}\n   HTTPS: {https_proxy}\n")
+
+    # Parse apiserver.json file
+    etcd_encryption, audit_profile = parse_apiserver_file(insights_archive)
+    print(f"etcd Encryption: {etcd_encryption}\nAudit Profile: {audit_profile}")
+
+
+def print_node_info(
+    directory: Optional[str], filters: dict, cluster_id: Optional[str]
+) -> None:
+    """Prints only node information (name, status, role, version, OS, CPU, memory)
+
+    Args:
+        directory (str): Location of OpenShift Insights Archive for Cluster
+        filters (Dict[str, Optional[str]]): Parse Args dict
+        cluster_id (str): Cluster ID
+
+    Returns:
+        None: This function prints the results directly to the console.
+    """
+
+    newest_file: str = ""
+    insights_archive = None
+
+    if filters.get("id"):
+        newest_file = find_newest_file(directory)
+        if not newest_file:
+            print(f"No Insights Data found for Cluster {cluster_id}.")
+            return
+
+        insights_archive = read_insights_file(newest_file)
+
+    if filters.get("file"):
+        insights_archive = read_insights_file(filters.get("file"))
+
+    insights_archive_file = insights_archive.getnames()
+
+    # Find and parse node files
+    node_files = find_files(insights_archive_file, "^config/node/[^/]+.json$")
+    node_info = parse_node_files(insights_archive, node_files)
+
+    if node_info:
+        print("\nNode Information:")
+        print_output(node_info)
+    else:
+        print("No node information found in the archive.")
+
+
+def print_cluster_operators(
+    directory: Optional[str], filters: dict, cluster_id: Optional[str]
+) -> None:
+    """Prints only cluster operator information (name, version, status)
+
+    Args:
+        directory (str): Location of OpenShift Insights Archive for Cluster
+        filters (Dict[str, Optional[str]]): Parse Args dict
+        cluster_id (str): Cluster ID
+
+    Returns:
+        None: This function prints the results directly to the console.
+    """
+
+    newest_file: str = ""
+    insights_archive = None
+
+    if filters.get("id"):
+        newest_file = find_newest_file(directory)
+        if not newest_file:
+            print(f"No Insights Data found for Cluster {cluster_id}.")
+            return
+
+        insights_archive = read_insights_file(newest_file)
+
+    if filters.get("file"):
+        insights_archive = read_insights_file(filters.get("file"))
+
+    insights_archive_file = insights_archive.getnames()
+
+    # Find and parse cluster operator files
+    co_files = find_files(insights_archive_file, "^config/clusteroperator/[^/]+.json$")
+    co_info = parse_cluster_operator_files(insights_archive, co_files)
+
+    if co_info:
+        print_output(co_info)
+    else:
+        print("No cluster operator information found in the archive.")
 
 
 def process_insights_data(
@@ -1591,6 +1767,14 @@ def main():
                             if filters.get("alerts"):
                                 insights_archive = read_insights_file(selected_file)
                                 parse_alerts(insights_archive, filters)
+                            if filters.get("events"):
+                                insights_archive = read_insights_file(selected_file)
+                                insights_archive_file = insights_archive.getnames()
+                                event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
+                                events_data = parse_event_files(insights_archive, event_files, True)
+                                if events_data:
+                                    print_output(events_data)
+                                sys.exit(0)
                             process_insights_data(directory, filters, cluster_id)
                             sys.exit(0)  # Exit after processing to prevent duplicate execution
                         else:
@@ -1611,6 +1795,14 @@ def main():
                             if filters.get("alerts"):
                                 insights_archive = read_insights_file(newest_file)
                                 parse_alerts(insights_archive, filters)
+                            if filters.get("events"):
+                                insights_archive = read_insights_file(newest_file)
+                                insights_archive_file = insights_archive.getnames()
+                                event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
+                                events_data = parse_event_files(insights_archive, event_files, True)
+                                if events_data:
+                                    print_output(events_data)
+                                sys.exit(0)
                             process_insights_data(directory, filters, cluster_id)
                             sys.exit(0)  # Exit after processing to prevent duplicate execution
                         else:
@@ -1631,6 +1823,14 @@ def main():
                         if filters.get("alerts"):
                             insights_archive = read_insights_file(selected_file)
                             parse_alerts(insights_archive, filters)
+                        if filters.get("events"):
+                            insights_archive = read_insights_file(selected_file)
+                            insights_archive_file = insights_archive.getnames()
+                            event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
+                            events_data = parse_event_files(insights_archive, event_files, True)
+                            if events_data:
+                                print_output(events_data)
+                            sys.exit(0)
                         process_insights_data(directory, filters, cluster_id)
                         sys.exit(0)  # Exit after processing to prevent duplicate execution
                     else:
@@ -1640,6 +1840,15 @@ def main():
                     if filters.get("etcd_metrics"):
                         print_etcd_metrics(directory, cluster_id)
                         sys.exit(0)
+                    if filters.get("cluster_info"):
+                        print_cluster_info(directory, filters, cluster_id)
+                        sys.exit(0)
+                    if filters.get("node_info"):
+                        print_node_info(directory, filters, cluster_id)
+                        sys.exit(0)
+                    if filters.get("cluster_operators"):
+                        print_cluster_operators(directory, filters, cluster_id)
+                        sys.exit(0)
                     if filters.get("alerts"):
                         newest_file = find_newest_file(directory)
                         if not newest_file:
@@ -1647,6 +1856,18 @@ def main():
                             sys.exit(1)
                         insights_archive = read_insights_file(newest_file)
                         parse_alerts(insights_archive, filters)
+                    if filters.get("events"):
+                        newest_file = find_newest_file(directory)
+                        if not newest_file:
+                            print(f"No Insights Data found for Cluster {cluster_id}.")
+                            sys.exit(1)
+                        insights_archive = read_insights_file(newest_file)
+                        insights_archive_file = insights_archive.getnames()
+                        event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
+                        events_data = parse_event_files(insights_archive, event_files, True)
+                        if events_data:
+                            print_output(events_data)
+                        sys.exit(0)
                     process_insights_data(directory, filters, cluster_id)
             else:
                 print("No connected OpenShift Clusters found.")
@@ -1660,9 +1881,62 @@ def main():
         file_path = Path(filters.get("file"))
 
         if file_path.is_file():
+            if filters.get("etcd_metrics"):
+                # Handle etcd_metrics for a single file
+                insights_archive = read_insights_file(file_path)
+                tar_files = insights_archive.getnames()
+
+                # Check if 'config/metrics' exists in the tar file
+                if "config/metrics" not in tar_files:
+                    print("File does not contain metrics.")
+                    sys.exit(1)
+
+                metrics_file = safe_extract_file(insights_archive, "config/metrics")
+                if metrics_file is None:
+                    print("File does not contain metrics.")
+                    sys.exit(1)
+
+                # Regular expression to match the pod name and the count
+                pattern = r'etcd_server_slow_apply_total\{.*?pod="([^"]+)",.*?(\d+)\s+\d+$'
+
+                # Try to get check-in time from filename, or use file modification time
+                try:
+                    checkin = check_in_time(str(file_path))
+                except (ValueError, IndexError):
+                    # If filename doesn't contain timestamp, use file modification time
+                    mod_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+                    checkin = mod_time.strftime("%a %b %d %I:%M:%S %p UTC %Y")
+
+                for line in metrics_file:
+                    line = line.decode("utf-8").strip()
+                    if match := re.search(pattern, line):
+                        # Extract both values
+                        pod_name, count = match.groups()
+                        # Print in CSV format
+                        print(f"{pod_name},{checkin},{count}")
+
+                sys.exit(0)
+
+            if filters.get("cluster_info"):
+                print_cluster_info(directory, filters, cluster_id)
+                sys.exit(0)
+            if filters.get("node_info"):
+                print_node_info(directory, filters, cluster_id)
+                sys.exit(0)
+            if filters.get("cluster_operators"):
+                print_cluster_operators(directory, filters, cluster_id)
+                sys.exit(0)
             if filters.get("alerts"):
                 insights_archive = read_insights_file(file_path)
                 parse_alerts(insights_archive, filters)
+            if filters.get("events"):
+                insights_archive = read_insights_file(file_path)
+                insights_archive_file = insights_archive.getnames()
+                event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
+                events_data = parse_event_files(insights_archive, event_files, True)
+                if events_data:
+                    print_output(events_data)
+                sys.exit(0)
             process_insights_data(directory, filters, cluster_id)
 
 

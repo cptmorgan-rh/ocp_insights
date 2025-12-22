@@ -40,20 +40,23 @@ USAGE
 
 ```bash
 ocp_insights.py --help
-usage: ocp_insights.py [-h] [--id ID] [--file FILE] [--alerts] [--customer_memory] [--etcd_metrics] [--events] [--list] [--extract]
+usage: ocp_insights.py [-h] [--id ID] [--file FILE] [--alerts] [--customer_memory] [--etcd_metrics] [--events] [--list] [--extract] [--cluster_info] [--node_info] [--cluster_operators]
 
 OpenShift InsightsCluster Report.
 
 options:
-  -h, --help         show this help message and exit
-  --id ID            ClusterID of a connected cluster used to find all connected Clusters
-  --file FILE        Use a specific Insights Archive File; must specify full path.
-  --alerts           Prints out Alerts in valid JSON
-  --customer_memory  Prints Customer Namespace memory usage.
-  --etcd_metrics     Prints etcd metrics for all Insights Archives for the cluster.
-  --events           Prints namespace events if they exist.
-  --list             List available archives for a specific cluster. Must be used with --id option. Can be combined with --extract.
-  --extract          Extract archive for a specific cluster to user's home directory. Must be used with --id option. Can be combined with --list to select which archive to extract.
+  -h, --help            show this help message and exit
+  --id ID               ClusterID of a connected cluster used to find all connected Clusters
+  --file FILE           Use a specific Insights Archive File; must specify full path.
+  --alerts              Prints out Alerts in valid JSON
+  --customer_memory     Prints Customer Namespace memory usage.
+  --etcd_metrics        Prints etcd Slow Apply metrics for all Insights Archives for the cluster.
+  --events              Prints namespace events if they exist.
+  --list                List available archives for a specific cluster. Must be used with --id option. Can be combined with --extract.
+  --extract             Extract archive for a specific cluster to user's home directory. Must be used with --id option. Can be combined with --list to select which archive to extract.
+  --cluster_info        Prints only cluster information (ID, name, version, platform, network, encryption, etc.).
+  --node_info           Prints only node information (name, status, role, version, OS, CPU, memory).
+  --cluster_operators   Prints only cluster operator information (name, version, status).
 ```
 
 ### Archive Selection with --list
@@ -134,6 +137,175 @@ This feature is useful for:
 - **Safe extraction**: Protects against directory traversal attacks (CVE-2007-4559)
 - **Path validation**: Ensures extraction stays within the target directory
 - **Trusted filtering**: Uses secure tarfile extraction methods
+
+### Cluster Information with --cluster_info
+
+The `--cluster_info` option prints only the essential cluster information without processing nodes, operators, pods, or other detailed resources. This is useful for quick cluster identification and basic configuration checks:
+
+```bash
+# Get cluster info using cluster ID
+ocp_insights.py --id <cluster-uuid> --cluster_info
+
+# Get cluster info from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --cluster_info
+
+# Example output:
+Checkin: Mon Mar 31 02:09:28 PM UTC 2025
+
+Cluster ID: abc123-def456-ghi789
+Cluster Name: my-cluster.example.com
+Cluster Version: 4.16.20
+Channel: eus-4.16
+Previous Versions: 4.16.20, 4.15.37, 4.14.31, 4.13.22
+
+Platform: BareMetal
+Install Type: IPI
+Network Type: OVNKubernetes
+IPsec: Disabled
+
+Proxy Settings:
+   HTTP:  False
+   HTTPS: False
+
+etcd Encryption: None
+Audit Profile: Default
+```
+
+This feature is useful for:
+- **Quick cluster identification**: Rapidly identify cluster details without full analysis
+- **Configuration verification**: Check basic network, security, and platform settings
+- **Troubleshooting**: Verify cluster version and channel information
+- **Documentation**: Generate basic cluster information for reports
+
+**Note**: This option outputs only the cluster configuration and skips all resource analysis (nodes, operators, pods, alerts, etc.).
+
+### Node Information with --node_info
+
+The `--node_info` option prints only the node information without processing cluster operators, pods, alerts, or other detailed resources. This is useful for quickly checking node status, capacity, and configuration:
+
+```bash
+# Get node info using cluster ID
+ocp_insights.py --id <cluster-uuid> --node_info
+
+# Get node info from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --node_info
+
+# Example output:
+
+Node Information:
+
+NAME                READY  ROLE                                                 CREATED ON           VERSION          OS                                                     CPU  MEMORY
+nyc-acp-n1.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:20:55  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n2.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:17:31  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n3.nyc.lab  True   control-plane,master,mcp-master-hp,worker,worker-hp  2024-01-06 07:41:52  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+nyc-acp-n4.nyc.lab  True   worker,worker-hp                                     2024-01-06 08:41:40  v1.29.9+5865c5b  Red Hat Enterprise Linux CoreOS 416.94.202410292028-0  144  503 GB
+```
+
+This feature is useful for:
+- **Quick node inventory**: Rapidly view all nodes and their status
+- **Capacity planning**: Check CPU and memory resources across nodes
+- **Node verification**: Verify node roles and kubelet versions
+- **Troubleshooting**: Identify NotReady nodes or version mismatches
+- **Documentation**: Generate node inventory for reports
+
+**Note**: This option outputs only node information and skips cluster configuration, operators, pods, and other resources.
+
+### Cluster Operators with --cluster_operators
+
+The `--cluster_operators` option prints only the cluster operator information without processing cluster configuration, nodes, pods, alerts, or other detailed resources. This is useful for quickly checking the health and status of cluster operators:
+
+```bash
+# Get cluster operator info using cluster ID
+ocp_insights.py --id <cluster-uuid> --cluster_operators
+
+# Get cluster operator info from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --cluster_operators
+
+# Example output:
+
+Cluster Operators:
+
+NAME                                      VERSION  AVAILABLE  PROGRESSING  DEGRADED
+authentication                            4.16.20  True       False        False
+baremetal                                 4.16.20  True       False        False
+cloud-controller-manager                  4.16.20  True       False        False
+cloud-credential                          4.16.20  True       False        False
+cluster-autoscaler                        4.16.20  True       False        False
+config-operator                           4.16.20  True       False        False
+console                                   4.16.20  True       False        False
+dns                                       4.16.20  True       False        False
+etcd                                      4.16.20  True       False        False
+image-registry                            4.16.20  True       False        False
+ingress                                   4.16.20  True       False        False
+kube-apiserver                            4.16.20  True       False        False
+monitoring                                4.16.20  True       False        False
+network                                   4.16.20  True       False        False
+storage                                   4.16.20  True       False        False
+```
+
+This feature is useful for:
+- **Quick health checks**: Rapidly identify degraded or unavailable operators
+- **Troubleshooting**: Focus on operator status without full cluster analysis
+- **Upgrade validation**: Verify all operators are available and not degraded
+- **Status monitoring**: Check operator progression during updates
+- **Documentation**: Generate operator status reports
+
+**Note**: This option outputs only cluster operator information and skips cluster configuration, nodes, pods, alerts, and other resources.
+
+### Namespace Events with --events
+
+The `--events` option extracts and displays namespace warning events from insights archives. When used, it prints **only** the event data without any other cluster information. It can be used with both `--id` and `--file` options:
+
+```bash
+# Extract events from the latest archive for a cluster
+ocp_insights.py --id <cluster-uuid> --events
+
+# Extract events from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --events
+
+# Example output (tabular format):
+Namespace Errors:
+
+NAMESPACE                        TYPE     REASON              TIME
+openshift-kube-apiserver         Warning  FailedMount         2025-03-31 13:15:23
+openshift-monitoring             Warning  BackOff             2025-03-31 14:22:15
+openshift-etcd                   Warning  Unhealthy           2025-03-31 15:30:42
+```
+
+This feature is useful for:
+- **Quick troubleshooting**: Identify namespace-level issues rapidly
+- **Event analysis**: Focus on warning events without cluster details
+- **Log extraction**: Generate clean event reports for documentation
+- **Targeted investigation**: Isolate event data for specific analysis
+
+**Note**: Only warning-type events are displayed. If no warning events exist in the archive, no output will be shown.
+
+### etcd Metrics with --etcd_metrics
+
+The `--etcd_metrics` option extracts etcd slow apply metrics from insights archives. It can be used with both `--id` and `--file` options:
+
+```bash
+# Extract metrics from all archives for a cluster
+ocp_insights.py --id <cluster-uuid> --etcd_metrics
+
+# Extract metrics from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --etcd_metrics
+
+# Example output (CSV format):
+etcd-nyc-acp-n1.nyc.lab,Mon Mar 31 02:09:28 PM UTC 2025,42
+etcd-nyc-acp-n2.nyc.lab,Mon Mar 31 02:09:28 PM UTC 2025,38
+etcd-nyc-acp-n3.nyc.lab,Mon Mar 31 02:09:28 PM UTC 2025,45
+```
+
+**Output format**: `pod_name,check_in_time,slow_apply_count`
+
+This feature is useful for:
+- **Performance analysis**: Track etcd slow apply operations over time
+- **Capacity planning**: Identify nodes experiencing storage or performance issues
+- **Troubleshooting**: Correlate etcd slowness with cluster issues
+- **Historical tracking**: Compare metrics across different time periods
+
+**Note**: For files without timestamp-based names, the file's modification time is used for the check-in time.
 
 SAMPLE OUTPUT
 ------------
