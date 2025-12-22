@@ -668,6 +668,18 @@ def parse_cluster_operator_files(tar: tarfile.TarFile, file_list: list) -> Optio
             for condition in co_json["status"]["conditions"]
         }
 
+        # Get reason message from problematic conditions (Degraded=True or Progressing=True)
+        reason = ""
+        for condition in co_json["status"]["conditions"]:
+            if condition["type"] in ["Degraded", "Progressing"] and condition["status"] == "True":
+                raw_message = condition.get("message", "")
+                # Replace newlines with spaces and clean up extra whitespace
+                reason = " ".join(raw_message.split())
+                # Truncate to 120 characters if too long
+                if len(reason) > 120:
+                    reason = reason[:117] + "..."
+                break
+
         cluster_operator_info.append(
             {
                 "NAME": co_name,
@@ -675,6 +687,7 @@ def parse_cluster_operator_files(tar: tarfile.TarFile, file_list: list) -> Optio
                 "AVAILABLE": conditions.get("Available"),
                 "PROGRESSING": conditions.get("Progressing"),
                 "DEGRADED": conditions.get("Degraded"),
+                "REASON": reason,
             }
         )
 
@@ -1177,7 +1190,7 @@ def parse_podnetchecks(tar: tarfile.TarFile) -> Optional[list]:
     ]
 
     if podnetcheck_info:
-        print("\PodNetworkConnectivityChecks: ")
+        print("\nPodNetworkConnectivityChecks: ")
         return podnetcheck_info
 
     return None

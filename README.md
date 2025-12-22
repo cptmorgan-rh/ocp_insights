@@ -21,6 +21,7 @@ This script has been significantly refactored to follow Python best practices:
 - **Python Compatibility**: Compatible with Python 3.9+ using proper typing syntax
 - **Improved Readability**: Node creation timestamps now display in a more readable format (e.g., `2025-11-05 02:40:03` instead of `2025-11-05T02:40:03Z`)
 - **Conditional Update Risks**: Display update risks and affected versions from the cluster version file to help identify potential upgrade issues
+- **Cluster Operator Diagnostics**: Added REASON column to cluster operators output showing detailed messages for Degraded or Progressing conditions, with clean single-line formatting
 
 REQUIREMENTS
 ------------
@@ -225,30 +226,40 @@ ocp_insights.py --file /path/to/insights-archive.tar.gz --cluster_operators
 
 Cluster Operators:
 
-NAME                                      VERSION  AVAILABLE  PROGRESSING  DEGRADED
-authentication                            4.16.20  True       False        False
+NAME                                      VERSION  AVAILABLE  PROGRESSING  DEGRADED  REASON
+authentication                            4.16.20  True       False        True      OAuthServerConfigObservationDegraded: error validating configMap openshift-config/ca-config-map: certificate expired:...
 baremetal                                 4.16.20  True       False        False
 cloud-controller-manager                  4.16.20  True       False        False
 cloud-credential                          4.16.20  True       False        False
 cluster-autoscaler                        4.16.20  True       False        False
 config-operator                           4.16.20  True       False        False
 console                                   4.16.20  True       False        False
-dns                                       4.16.20  True       False        False
+dns                                       4.16.20  True       True         False     DNS "default" reports Progressing=True: "Have 26 available DNS pods, want 27."
 etcd                                      4.16.20  True       False        False
 image-registry                            4.16.20  True       False        False
 ingress                                   4.16.20  True       False        False
 kube-apiserver                            4.16.20  True       False        False
 monitoring                                4.16.20  True       False        False
-network                                   4.16.20  True       False        False
+network                                   4.16.20  True       True         False     DaemonSet "/openshift-multus/multus" is not available (awaiting 1 nodes) DaemonSet "/openshift-multus/network-metrics...
 storage                                   4.16.20  True       False        False
 ```
 
+#### Features
+
+The cluster operators output includes a **REASON** column that displays messages from problematic conditions:
+- Shows messages when **Degraded=True** (e.g., certificate errors, configuration issues)
+- Shows messages when **Progressing=True** (e.g., pod availability, rollout status)
+- Messages are formatted on a single line for clean table display
+- Long messages are truncated to 120 characters with "..." for readability
+- Empty when all conditions are healthy
+
 This feature is useful for:
 - **Quick health checks**: Rapidly identify degraded or unavailable operators
+- **Root cause analysis**: Immediately see why an operator is degraded or progressing
 - **Troubleshooting**: Focus on operator status without full cluster analysis
 - **Upgrade validation**: Verify all operators are available and not degraded
-- **Status monitoring**: Check operator progression during updates
-- **Documentation**: Generate operator status reports
+- **Status monitoring**: Check operator progression during updates with detailed reasons
+- **Documentation**: Generate operator status reports with diagnostic information
 
 **Note**: This option outputs only cluster operator information and skips cluster configuration, nodes, pods, alerts, and other resources.
 
@@ -336,7 +347,7 @@ nyc-acp-n4.nyc.lab  True   worker,worker-hp                                     
 
 Cluster Operators:
 
-NAME                                      VERSION  AVAILABLE  PROGRESSING  DEGRADED
+NAME                                      VERSION  AVAILABLE  PROGRESSING  DEGRADED  REASON
 authentication                            4.16.20  True       False        False
 baremetal                                 4.16.20  True       False        False
 cloud-controller-manager                  4.16.20  True       False        False
