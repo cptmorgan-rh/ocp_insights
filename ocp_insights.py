@@ -4,6 +4,7 @@
 import argparse
 import json
 import re
+import signal
 import sys
 import tarfile
 import uuid
@@ -1954,4 +1955,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Handle SIGPIPE to prevent broken pipe errors when piping to commands like grep -m1, head, etc.
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+    try:
+        main()
+    except BrokenPipeError:
+        # Handle broken pipe error gracefully
+        # This prevents error messages when the consuming process closes the pipe early
+        sys.stderr.close()
+        sys.exit(0)
