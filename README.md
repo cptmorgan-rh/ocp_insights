@@ -6,29 +6,17 @@ DESCRIPTION
 
 ocp_insights.py is a modern, pythonic script that collects the latest Insights data for a connected OpenShift 4 Cluster and parses the data in an easily readable format.
 
-To use the script you *MUST* be on SupportShell due to the Insights data being stored locally.
-
-## Recent Improvements (v2.0)
-
-This script has been significantly refactored to follow Python best practices:
-
-- **Enhanced Security**: Replaced shell command execution with secure pathlib operations
-- **Type Safety**: Added comprehensive type hints for better code reliability
-- **Performance**: Optimized memory calculations and file operations
-- **Maintainability**: Extracted constants and improved code organization
-- **Error Handling**: More specific exception handling for better debugging
-- **Code Consistency**: Refactored functions to use common helper methods (`safe_extract_file`) for uniform error handling and code patterns
-- **Python Compatibility**: Compatible with Python 3.9+ using proper typing syntax
-- **Improved Readability**: Node creation timestamps now display in a more readable format (e.g., `2025-11-05 02:40:03` instead of `2025-11-05T02:40:03Z`)
-- **Conditional Update Risks**: Display update risks and affected versions from the cluster version file to help identify potential upgrade issues
-- **Cluster Operator Diagnostics**: Added REASON column to cluster operators output showing detailed messages for Degraded or Progressing conditions, with clean single-line formatting
+To use the script you *MUST* be on SupportShell due to the Insights data being stored locally, or use the `--remote` option to execute the script remotely on SupportShell from your local machine.
 
 REQUIREMENTS
 ------------
 - Python 3.9 or higher
-- Access to SupportShell environment
+- Access to SupportShell environment (or use `--remote` option)
 - Required Python modules (all standard library):
-  - `argparse`, `json`, `pathlib`, `tarfile`, `uuid`, `datetime`, `typing`
+  - `argparse`, `json`, `pathlib`, `tarfile`, `uuid`, `datetime`, `typing`, `subprocess`, `os`
+- For `--remote` functionality:
+  - SSH access to remote server
+  - `scp` command available
 
 INSTALLATION
 ------------
@@ -41,7 +29,7 @@ USAGE
 
 ```bash
 ocp_insights.py --help
-usage: ocp_insights.py [-h] [--id ID] [--file FILE] [--alerts] [--customer_memory] [--etcd_metrics] [--events] [--list] [--extract] [--cluster_info] [--node_info] [--cluster_operators]
+usage: ocp_insights.py [-h] [--id ID] [--file FILE] [--alerts] [--customer_memory] [--etcd_metrics] [--events] [--list] [--extract] [--cluster_info] [--node_info] [--cluster_operators] [--node_logs NODE_NAME] [--remote] [--server SERVER]
 
 OpenShift InsightsCluster Report.
 
@@ -52,12 +40,15 @@ options:
   --alerts              Prints out Alerts in valid JSON
   --customer_memory     Prints Customer Namespace memory usage.
   --etcd_metrics        Prints etcd Slow Apply metrics for all Insights Archives for the cluster.
-  --events              Prints namespace events if they exist.
+  --events              Prints only namespace events and exits (events are always included in full reports by default).
   --list                List available archives for a specific cluster. Must be used with --id option. Can be combined with --extract.
   --extract             Extract archive for a specific cluster to user's home directory. Must be used with --id option. Can be combined with --list to select which archive to extract.
   --cluster_info        Prints only cluster information (ID, name, version, platform, network, encryption, etc.).
   --node_info           Prints only node information (name, status, role, version, OS, CPU, memory).
   --cluster_operators   Prints only cluster operator information (name, version, status).
+  --node_logs NODE_NAME Print logs for a master node. Provide the full node name (FQDN). Master nodes only.
+  --remote              Connect to remote server to perform analysis
+  --server SERVER       Remote server to connect to (overrides default). Use with --remote option.
 ```
 
 ### Archive Selection with --list
@@ -263,19 +254,134 @@ This feature is useful for:
 
 **Note**: This option outputs only cluster operator information and skips cluster configuration, nodes, pods, alerts, and other resources.
 
-### Namespace Events with --events
+### Node Logs with --node_logs
 
-The `--events` option extracts and displays namespace warning events from insights archives. When used, it prints **only** the event data without any other cluster information. It can be used with both `--id` and `--file` options:
+The `--node_logs` option allows you to print node logs for a specific master node. Node logs only exist for master nodes in the insights archive and are stored in the `config/node/logs/` directory:
 
 ```bash
-# Extract events from the latest archive for a cluster
-ocp_insights.py --id <cluster-uuid> --events
+# Get node logs using cluster ID
+ocp_insights.py --id <cluster-uuid> --node_logs master1.example.com
 
-# Extract events from a specific file
+# Get node logs from a specific file
+ocp_insights.py --file /path/to/insights-archive.tar.gz --node_logs master1.example.com
+
+# Can be used with --list to select archive first
+ocp_insights.py --id <cluster-uuid> --list --node_logs master1.example.com
+
+# Example output:
+
+Node Logs for: master1.prod-b.openshift.example.com
+================================================================================
+Dec 03 17:36:05.367709 master1.prod-b.openshift.example.com kubenswrapper[2892]: I1203 17:36:05.367681    2892 prober.go:107] "Probe failed" probeType="Readiness" pod="openshift-apiserver/apiserver-686d8478c9-p48qk" podUID="b249cc2a-bb7d-4cce-ac40-d2872676102a" containerName="openshift-apiserver" probeResult="failure" output="Get \"https://10.128.69.1:8443/readyz?exclude=etcd&exclude=etcd-readiness\": dial tcp 10.128.69.1:8443: connect: connection refused"
+...
+```
+
+#### Features
+
+- **Master nodes only**: Node logs are only available for master/control-plane nodes in insights archives
+- **FQDN required**: Provide the full qualified domain name of the node
+- **Auto-extension**: The `.log` extension is automatically added if not provided
+- **Error handling**: Clear error message if logs don't exist or are empty
+
+#### Examples
+
+```bash
+# With .log extension
+ocp_insights.py --file insights.tar.gz --node_logs master1.example.com.log
+
+# Without .log extension (automatically added)
+ocp_insights.py --file insights.tar.gz --node_logs master1.example.com
+
+# Non-existent or empty logs
+ocp_insights.py --file insights.tar.gz --node_logs worker1.example.com
+# Output: No logs for worker1.example.com
+```
+
+This feature is useful for:
+- **Troubleshooting master nodes**: Review kubelet logs and system events on control-plane nodes
+- **Probe failures**: Investigate readiness and liveness probe issues
+- **Certificate errors**: Check for certificate-related problems
+- **Node-specific issues**: Debug issues affecting specific master nodes
+
+**Note**: Node logs are only captured for master/control-plane nodes. Worker node logs are not available in insights archives.
+
+### Remote Execution with --remote
+
+The `--remote` option allows you to execute the script on a remote server (typically SupportShell) from your local machine. This is useful when you don't have direct access to the server where Insights data is stored, but can connect via SSH:
+
+```bash
+# Execute analysis on the default remote server
+ocp_insights.py --id <cluster-uuid> --remote
+
+# Execute analysis on a custom remote server
+ocp_insights.py --id <cluster-uuid> --remote --server custom-server.example.com
+
+# Use with other options
+ocp_insights.py --id <cluster-uuid> --remote --cluster_info
+ocp_insights.py --id <cluster-uuid> --remote --events
+```
+
+#### Requirements
+
+- **SSH Client**: The `--remote` option uses your system's SSH client to connect to the remote server
+- **SSH Access**: SSH access to the remote server must be configured
+- **Remote Script**: The script will be temporarily copied to `/tmp` on the remote server and cleaned up after execution
+
+#### SSH Configuration
+
+The `--remote` option uses your system's **SSH client** to establish connections. If you need to specify a different username or other SSH settings (port, identity file, etc.), configure your SSH client using `~/.ssh/config`:
+
+```bash
+# Example SSH config (~/.ssh/config)
+Host supportshell
+    HostName supportshell-1.sush-001.prod.us-west-2.aws.redhat.com
+    User myusername
+    Port 22
+    IdentityFile ~/.ssh/my_private_key
+```
+
+Then reference your configured host when using the `--remote` option:
+
+```bash
+# Use the SSH config alias
+ocp_insights.py --id <cluster-uuid> --remote --server supportshell
+
+# Use another SSH config alias
+ocp_insights.py --id <cluster-uuid> --remote --server custom-server
+```
+
+#### Features
+
+- **Automatic Script Transfer**: The script copies itself to the remote server via SCP
+- **All Options Supported**: Most command-line options work with `--remote` (except `--server` which is local-only)
+- **Automatic Cleanup**: Temporary files are automatically removed from the remote server
+- **Custom Server Support**: Use `--server` to override the default remote server
+- **SSH Config Compatible**: Fully compatible with SSH config files for customized connection settings
+
+#### Security Notes
+
+- Temporary files are created with unique process IDs to avoid conflicts
+- Cleanup is performed even if the remote command fails or times out
+- The `--server` option can only be used together with `--remote`
+- SSH authentication uses your system's SSH client configuration (keys, agent, config file)
+
+**Default Remote Server**: `supportshell-1.sush-001.prod.us-west-2.aws.redhat.com`
+
+### Namespace Events with --events
+
+Namespace warning events are **always included** in the full cluster report by default. The `--events` option allows you to display **only** the namespace events without any other cluster information:
+
+```bash
+# Show ONLY namespace events (no other cluster information)
+ocp_insights.py --id <cluster-uuid> --events
 ocp_insights.py --file /path/to/insights-archive.tar.gz --events
 
-# Example output (tabular format):
-Namespace Errors:
+# Show full cluster report INCLUDING namespace events (default behavior)
+ocp_insights.py --id <cluster-uuid>
+ocp_insights.py --file /path/to/insights-archive.tar.gz
+
+# Example output with --events (only events shown):
+Namespace Event Errors:
 
 NAMESPACE                        TYPE     REASON              TIME
 openshift-kube-apiserver         Warning  FailedMount         2025-03-31 13:15:23
@@ -283,13 +389,17 @@ openshift-monitoring             Warning  BackOff             2025-03-31 14:22:1
 openshift-etcd                   Warning  Unhealthy           2025-03-31 15:30:42
 ```
 
-This feature is useful for:
-- **Quick troubleshooting**: Identify namespace-level issues rapidly
-- **Event analysis**: Focus on warning events without cluster details
-- **Log extraction**: Generate clean event reports for documentation
-- **Targeted investigation**: Isolate event data for specific analysis
+#### Key Behavior:
+- **With `--events` flag**: Displays **only** namespace events and exits (no other cluster data)
+- **Without `--events` flag**: Displays **full cluster report** including namespace events as one of many sections
 
-**Note**: Only warning-type events are displayed. If no warning events exist in the archive, no output will be shown.
+This feature is useful for:
+- **Quick troubleshooting**: Identify namespace-level issues rapidly without full report
+- **Event analysis**: Focus exclusively on warning events
+- **Log extraction**: Generate clean event-only reports for documentation
+- **Piping to other tools**: Extract just events for further processing
+
+**Note**: Only warning-type events are displayed. If no warning events exist, "No namespace events found." will be displayed.
 
 ### etcd Metrics with --etcd_metrics
 
@@ -663,7 +773,7 @@ openshift-apiserver-service-cluster   2025-12-03 17:11:54Z
 
 Conditional Update Risks:
 
-RISK                                     REFERENCE                                         AFFECTED_VERSIONS
+RISK                                     REFERENCE                                         AFFECTED VERSIONS
 ConsoleEnabledTargetDownAlert            https://issues.redhat.com/browse/CONSOLE-4632     4.18.12, 4.18.13, 4.18.14, 4.18.15, 4.18.16, 4.18.17
 ContinuousNodeRebootingDueToKernelPanic  https://issues.redhat.com/browse/COS-3700         4.18.24, 4.18.25, 4.18.26
 CrunConflictsWithNVIDIA                  https://issues.redhat.com/browse/RUN-3446         4.18.22, 4.18.23
@@ -678,23 +788,7 @@ CONTRIBUTING
 
 All contributions are welcome to the project as long as they do not change the core functionality of the script.
 
-### Development Guidelines
-- Follow PEP 8 style guidelines
-- Add type hints for new functions
-- Use pathlib for file operations
-- Extract magic numbers as named constants
-- Write descriptive docstrings
-- Ensure Python 3.9+ compatibility
-
 In your Pull Request please provide the ClusterID you used to test.
-
-### Code Quality
-The codebase follows modern Python practices:
-- Type safety with comprehensive type hints
-- Secure file operations using pathlib
-- Named constants for maintainability
-- Proper error handling and logging
-- Performance optimizations
 
 AUTHORS
 ------

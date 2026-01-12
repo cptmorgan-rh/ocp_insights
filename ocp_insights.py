@@ -3,8 +3,10 @@
 
 import argparse
 import json
+import os
 import re
 import signal
+import subprocess
 import sys
 import tarfile
 import uuid
@@ -623,6 +625,8 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
         "master": 1,
         "control-plane": 1,
         "control-plane,master": 1,
+        "control-plane,master,worker": 1,
+        "control-plane,worker": 1,
         "infra": 2,
         "infra,worker": 3,
         "storage": 4,
@@ -634,6 +638,42 @@ def parse_node_files(tar: tarfile.TarFile, file_list: list) -> list:
     return sorted(
         reversed(node_info), key=lambda x: (role_priority.get(x["ROLE"], 6), natural_sort_key(x["NAME"]))
     )
+
+
+def print_node_logs(tar: tarfile.TarFile, node_name: str) -> None:
+    """Prints node logs for a given master node.
+
+    Args:
+        tar (tarfile.TarFile): Insights Archive
+        node_name (str): Full node name (FQDN) of the master node
+
+    Returns:
+        None: This function prints the node logs directly to the console.
+    """
+    # Add .log extension if not provided
+    if not node_name.endswith(".log"):
+        log_filename = f"{node_name}.log"
+    else:
+        log_filename = node_name
+
+    # Node logs are stored as config/node/logs/<node_name>.log
+    log_path = f"config/node/logs/{log_filename}"
+
+    log_file = safe_extract_file(tar, log_path)
+    if log_file is None:
+        print(f"No logs for {node_name}")
+        return
+
+    log_content = log_file.read().decode("utf-8", errors="replace")
+
+    # Check if log file is empty
+    if not log_content or log_content.strip() == "":
+        print(f"No logs for {node_name}")
+        return
+
+    print(f"\nNode Logs for: {node_name}")
+    print("=" * 80)
+    print(log_content)
 
 
 def parse_cluster_operator_files(tar: tarfile.TarFile, file_list: list) -> Optional[list]:
@@ -1066,18 +1106,15 @@ def parse_restarting_pods(tar: tarfile.TarFile, file_list: list) -> list:
 def parse_event_files(
     tar: tarfile.TarFile,
     file_list: list,
-    all_events: bool,
 ) -> Optional[list]:
     """Parses Warnings from namespace events if they exist.
 
     Args:
         tar (tarfile.TarFile): Insights Archive
         file_list (List[str]): List of files that match regex from file_files function
-        all_events (bool): Prints all events if true
-        clusterid (str): Used to output clusterid if all events not printed
 
     Returns:
-        List[Dict[str, str]]: Returns a List of unique dictionaries containing namespace,
+        List[Dict[str, str]]: Returns a List of dictionaries containing namespace,
         type of message, reason, and timestamp or none if List is empty
     """
     event_list: list = []
@@ -1099,25 +1136,9 @@ def parse_event_files(
         ]
         event_list.extend(warnings)
 
-    if all_events:
-        if event_list:
-            print("\nNamespace Errors:")
-            return event_list
-
     if event_list:
-        # Create a list of unique entries based on NAMESPACE
-        seen_namespaces = set()
-        unique_entries = []
-
-        for entry in event_list:
-            namespace = entry["NAMESPACE"]
-            if namespace not in seen_namespaces:
-                seen_namespaces.add(namespace)
-                unique_entries.append(entry)
-
         print("\nNamespace Event Errors:")
-
-        return unique_entries
+        return event_list
 
     return None  # Return None if List is empty
 
@@ -1246,7 +1267,7 @@ def parse_conditional_update_risks(tar: tarfile.TarFile) -> Optional[list]:
             {
                 "RISK": risk_name,
                 "REFERENCE": data["url"],
-                "AFFECTED_VERSIONS": ", ".join(sorted(data["versions"]))
+                "AFFECTED VERSIONS": ", ".join(sorted(data["versions"], key=natural_sort_key))
             }
             for risk_name, data in risk_data.items()
         ]
@@ -1359,6 +1380,105 @@ def print_output(data: list) -> None:
             print(row)
 
 
+def execute_remote_search(args_dict: dict) -> str:
+    """Execute the cluster analysis on remote server via SSH.
+       This only works for Red Hat internal.
+
+    Args:
+        args_dict (dict): Dictionary of command line arguments
+
+    Returns:
+        str: Output from remote execution
+    """
+    # Use custom server if provided, otherwise use default
+    remote_server = args_dict.get("server", "remote-support-server")
+
+    print(f"Connecting to remote server: {remote_server}...")
+
+    try:
+        # Copy this script to the remote server
+        script_name = f"/tmp/ocp_insights_{os.getpid()}.py"
+
+        # Use scp to copy the script
+        scp_cmd = [
+            "scp",
+            "-q",
+            __file__,
+            f"{remote_server}:{script_name}"
+        ]
+
+        result = subprocess.run(
+            scp_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30
+        )
+
+        if result.returncode != 0:
+            print(f"Error copying script to remote server: {result.stderr.decode()}")
+            sys.exit(1)
+
+        # Build the remote command
+        remote_cmd = f"python3 {script_name}"
+
+        for key, value in args_dict.items():
+            if key in ("remote", "server"):
+                # Skip remote and server flags as they're only for local execution
+                continue
+            # Convert underscores back to hyphens for command line arguments
+            flag_name = key.replace("_", "-")
+            if value is True:
+                remote_cmd += f" --{flag_name}"
+            elif value is not None and value is not False:
+                remote_cmd += f" --{flag_name} '{value}'"
+
+        # Execute the command on remote server
+        ssh_cmd = [
+            "ssh",
+            "-q",
+            remote_server,
+            remote_cmd
+        ]
+
+        print("Executing analysis on remote server...")
+        result = subprocess.run(
+            ssh_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300
+        )
+
+        if result.returncode != 0:
+            print(f"Error executing remote command: {result.stderr.decode()}")
+            # Clean up the temporary script
+            cleanup_cmd = ["ssh", "-q", remote_server, f"rm -f {script_name}"]
+            subprocess.run(cleanup_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sys.exit(1)
+
+        # Clean up the temporary script
+        cleanup_cmd = ["ssh", "-q", remote_server, f"rm -f {script_name}"]
+        subprocess.run(cleanup_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Return the output from remote execution
+        return result.stdout.decode()
+
+    except subprocess.TimeoutExpired:
+        print("Remote command timed out")
+        # Attempt cleanup
+        cleanup_cmd = ["ssh", "-q", remote_server, f"rm -f {script_name}"]
+        subprocess.run(cleanup_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error executing remote search: {e}")
+        # Attempt cleanup
+        try:
+            cleanup_cmd = ["ssh", "-q", remote_server, f"rm -f {script_name}"]
+            subprocess.run(cleanup_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception:
+            pass  # Best effort cleanup
+        sys.exit(1)
+
+
 def parse_arguments() -> dict:
     """Parse command-line arguments and return them as a dictionary.
 
@@ -1419,8 +1539,30 @@ def parse_arguments() -> dict:
         action="store_true",
         help="Prints only cluster operator information (name, version, status).",
     )
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help="Connect to remote server to perform analysis",
+    )
+    parser.add_argument(
+        "--server",
+        type=str,
+        help="Remote server to connect to (overrides default). Use with --remote option.",
+    )
+    parser.add_argument(
+        "--node_logs",
+        type=str,
+        metavar="NODE_NAME",
+        help="Print logs for a master node. Provide the full node name (FQDN). Master nodes only.",
+    )
 
     args = parser.parse_args()
+
+    # Check --server requires --remote
+    if args.server and not args.remote:
+        print("Error: --server can only be used with --remote option.")
+        parser.print_help()
+        sys.exit(1)
 
     # Check --list and --extract specific validations first
     if args.list and args.id is None:
@@ -1735,11 +1877,11 @@ def process_insights_data(
             print_parsed_output(parse_unschedulable_pods, insights_archive, files)
             print_parsed_output(parse_restarting_pods, insights_archive, files)
         elif key == "events":
+            # Always include namespace events in full report
             print_parsed_output(
                 parse_event_files,
                 insights_archive,
                 files,
-                filters["events"],
             )
 
     # Parse and print Alerts
@@ -1760,6 +1902,16 @@ def main():
 
     filters: dict = {key: value for key, value in args.items() if value is not None}
 
+    # Check if remote mode is enabled
+    if filters.get("remote", False):
+        # Execute remote search
+        remote_output = execute_remote_search(filters)
+
+        # Print the remote output
+        if remote_output.strip():
+            print(remote_output)
+        return
+
     if filters.get("id"):
         cluster_id: str = filters.get("id")
 
@@ -1778,17 +1930,26 @@ def main():
                             print("Archive extraction completed successfully.")
                             # Also process the selected file for evaluation
                             filters["file"] = selected_file
-                            if filters.get("alerts"):
+                            if filters.get("node_logs"):
                                 insights_archive = read_insights_file(selected_file)
-                                parse_alerts(insights_archive, filters)
+                                print_node_logs(insights_archive, filters.get("node_logs"))
+                                sys.exit(0)
                             if filters.get("events"):
+                                # Only print namespace events when --events is specified
                                 insights_archive = read_insights_file(selected_file)
                                 insights_archive_file = insights_archive.getnames()
                                 event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
-                                events_data = parse_event_files(insights_archive, event_files, True)
+                                events_data = parse_event_files(insights_archive, event_files)
                                 if events_data:
                                     print_output(events_data)
+                                else:
+                                    print("No namespace events found.")
                                 sys.exit(0)
+                            if filters.get("alerts"):
+                                insights_archive = read_insights_file(selected_file)
+                                parse_alerts(insights_archive, filters)
+                                sys.exit(0)
+                            # Default: print full report including namespace events
                             process_insights_data(directory, filters, cluster_id)
                             sys.exit(0)  # Exit after processing to prevent duplicate execution
                         else:
@@ -1806,17 +1967,26 @@ def main():
                         newest_file = find_newest_file(directory)
                         if newest_file:
                             filters["file"] = newest_file
-                            if filters.get("alerts"):
+                            if filters.get("node_logs"):
                                 insights_archive = read_insights_file(newest_file)
-                                parse_alerts(insights_archive, filters)
+                                print_node_logs(insights_archive, filters.get("node_logs"))
+                                sys.exit(0)
                             if filters.get("events"):
+                                # Only print namespace events when --events is specified
                                 insights_archive = read_insights_file(newest_file)
                                 insights_archive_file = insights_archive.getnames()
                                 event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
-                                events_data = parse_event_files(insights_archive, event_files, True)
+                                events_data = parse_event_files(insights_archive, event_files)
                                 if events_data:
                                     print_output(events_data)
+                                else:
+                                    print("No namespace events found.")
                                 sys.exit(0)
+                            if filters.get("alerts"):
+                                insights_archive = read_insights_file(newest_file)
+                                parse_alerts(insights_archive, filters)
+                                sys.exit(0)
+                            # Default: print full report including namespace events
                             process_insights_data(directory, filters, cluster_id)
                             sys.exit(0)  # Exit after processing to prevent duplicate execution
                         else:
@@ -1834,17 +2004,26 @@ def main():
                     if selected_file:
                         # Process the selected file
                         filters["file"] = selected_file
-                        if filters.get("alerts"):
+                        if filters.get("node_logs"):
                             insights_archive = read_insights_file(selected_file)
-                            parse_alerts(insights_archive, filters)
+                            print_node_logs(insights_archive, filters.get("node_logs"))
+                            sys.exit(0)
                         if filters.get("events"):
+                            # Only print namespace events when --events is specified
                             insights_archive = read_insights_file(selected_file)
                             insights_archive_file = insights_archive.getnames()
                             event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
                             events_data = parse_event_files(insights_archive, event_files, True)
                             if events_data:
                                 print_output(events_data)
+                            else:
+                                print("No namespace events found.")
                             sys.exit(0)
+                        if filters.get("alerts"):
+                            insights_archive = read_insights_file(selected_file)
+                            parse_alerts(insights_archive, filters)
+                            sys.exit(0)
+                        # Default: print full report including namespace events
                         process_insights_data(directory, filters, cluster_id)
                         sys.exit(0)  # Exit after processing to prevent duplicate execution
                     else:
@@ -1853,6 +2032,14 @@ def main():
                     # Handle regular --id usage (existing functionality)
                     if filters.get("etcd_metrics"):
                         print_etcd_metrics(directory, cluster_id)
+                        sys.exit(0)
+                    if filters.get("node_logs"):
+                        newest_file = find_newest_file(directory)
+                        if not newest_file:
+                            print(f"No Insights Data found for Cluster {cluster_id}.")
+                            sys.exit(1)
+                        insights_archive = read_insights_file(newest_file)
+                        print_node_logs(insights_archive, filters.get("node_logs"))
                         sys.exit(0)
                     if filters.get("cluster_info"):
                         print_cluster_info(directory, filters, cluster_id)
@@ -1863,14 +2050,8 @@ def main():
                     if filters.get("cluster_operators"):
                         print_cluster_operators(directory, filters, cluster_id)
                         sys.exit(0)
-                    if filters.get("alerts"):
-                        newest_file = find_newest_file(directory)
-                        if not newest_file:
-                            print(f"No Insights Data found for Cluster {cluster_id}.")
-                            sys.exit(1)
-                        insights_archive = read_insights_file(newest_file)
-                        parse_alerts(insights_archive, filters)
                     if filters.get("events"):
+                        # Only print namespace events when --events is specified
                         newest_file = find_newest_file(directory)
                         if not newest_file:
                             print(f"No Insights Data found for Cluster {cluster_id}.")
@@ -1881,7 +2062,18 @@ def main():
                         events_data = parse_event_files(insights_archive, event_files, True)
                         if events_data:
                             print_output(events_data)
+                        else:
+                            print("No namespace events found.")
                         sys.exit(0)
+                    if filters.get("alerts"):
+                        newest_file = find_newest_file(directory)
+                        if not newest_file:
+                            print(f"No Insights Data found for Cluster {cluster_id}.")
+                            sys.exit(1)
+                        insights_archive = read_insights_file(newest_file)
+                        parse_alerts(insights_archive, filters)
+                        sys.exit(0)
+                    # Default: print full report including namespace events
                     process_insights_data(directory, filters, cluster_id)
             else:
                 print("No connected OpenShift Clusters found.")
@@ -1931,6 +2123,10 @@ def main():
 
                 sys.exit(0)
 
+            if filters.get("node_logs"):
+                insights_archive = read_insights_file(file_path)
+                print_node_logs(insights_archive, filters.get("node_logs"))
+                sys.exit(0)
             if filters.get("cluster_info"):
                 print_cluster_info(directory, filters, cluster_id)
                 sys.exit(0)
@@ -1940,17 +2136,22 @@ def main():
             if filters.get("cluster_operators"):
                 print_cluster_operators(directory, filters, cluster_id)
                 sys.exit(0)
-            if filters.get("alerts"):
-                insights_archive = read_insights_file(file_path)
-                parse_alerts(insights_archive, filters)
             if filters.get("events"):
+                # Only print namespace events when --events is specified
                 insights_archive = read_insights_file(file_path)
                 insights_archive_file = insights_archive.getnames()
                 event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
-                events_data = parse_event_files(insights_archive, event_files, True)
+                events_data = parse_event_files(insights_archive, event_files)
                 if events_data:
                     print_output(events_data)
+                else:
+                    print("No namespace events found.")
                 sys.exit(0)
+            if filters.get("alerts"):
+                insights_archive = read_insights_file(file_path)
+                parse_alerts(insights_archive, filters)
+                sys.exit(0)
+            # Default: print full report including namespace events
             process_insights_data(directory, filters, cluster_id)
 
 
