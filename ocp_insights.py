@@ -794,13 +794,13 @@ def parse_olm_operators(tar: tarfile.TarFile) -> Optional[list]:
 
     olm_operators_info: list = [
         {
-            "NAME": full_name.split(".")[0],
+            "NAME": parts[0],
             "DISPLAY NAME": item["displayName"],
             "VERSION": item["version"],
-            "NAMESPACE": full_name.split(".")[1],
+            "NAMESPACE": parts[1] if len(parts) > 1 else "N/A",
         }
         for item in olm_json
-        for full_name in [item["name"]]
+        for parts in [item["name"].split(".")]
     ]
 
     print("\nInstalled OLM Operators:")
@@ -1382,7 +1382,6 @@ def print_output(data: list) -> None:
 
 def execute_remote_search(args_dict: dict) -> str:
     """Execute the cluster analysis on remote server via SSH.
-       This only works for Red Hat internal.
 
     Args:
         args_dict (dict): Dictionary of command line arguments
@@ -1391,7 +1390,7 @@ def execute_remote_search(args_dict: dict) -> str:
         str: Output from remote execution
     """
     # Use custom server if provided, otherwise use default
-    remote_server = args_dict.get("server", "remote-support-server")
+    remote_server = args_dict.get("server", "supportshell-1.sush-001.prod.us-west-2.aws.redhat.com")
 
     print(f"Connecting to remote server: {remote_server}...")
 
@@ -2013,7 +2012,7 @@ def main():
                             insights_archive = read_insights_file(selected_file)
                             insights_archive_file = insights_archive.getnames()
                             event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
-                            events_data = parse_event_files(insights_archive, event_files, True)
+                            events_data = parse_event_files(insights_archive, event_files)
                             if events_data:
                                 print_output(events_data)
                             else:
@@ -2059,7 +2058,7 @@ def main():
                         insights_archive = read_insights_file(newest_file)
                         insights_archive_file = insights_archive.getnames()
                         event_files = find_files(insights_archive_file, r"^events/[^/]+.json$")
-                        events_data = parse_event_files(insights_archive, event_files, True)
+                        events_data = parse_event_files(insights_archive, event_files)
                         if events_data:
                             print_output(events_data)
                         else:
